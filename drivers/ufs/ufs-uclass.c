@@ -1534,6 +1534,19 @@ static inline void ufshcd_remove_non_printable(uint8_t *val)
 		*val = ' ';
 }
 
+static inline void ufshcd_str_desc_to_cpu(u8 *desc, u32 size)
+{
+	u16 *p = (u16 *)&desc[QUERY_DESC_HDR_SIZE];
+	u32 len = desc[QUERY_DESC_LENGTH_OFFSET];
+	u32 i;
+
+	if (len > size)
+		len = size;
+
+	for (i = QUERY_DESC_HDR_SIZE; i + 1 < len; i += 2, p++)
+		*p = be16_to_cpu(*p);
+}
+
 /**
  * ufshcd_uic_pwr_ctrl - executes UIC commands (which affects the link power
  * state) and waits for it to take effect.
@@ -1765,6 +1778,8 @@ static int ufshcd_read_string_desc(struct ufs_hba *hba, int desc_index,
 			err = -ENOMEM;
 			goto out;
 		}
+
+		ufshcd_str_desc_to_cpu(buf, size);
 
 		/*
 		 * the descriptor contains string in UTF16 format
