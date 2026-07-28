@@ -194,6 +194,30 @@ config FIT_BEST_MATCH
 	  If several configurations match equally well, the one named by
 	  the configurations node 'default' property is preferred.
 
+config FIRMWARE_FDT
+	bool "Source the devicetree from a firmware-owned partition"
+	depends on BLK && FIT
+	select EFI_PARTITION
+	select FIT_BEST_MATCH
+	select PARTITION_TYPE_GUID
+	select OF_LIBFDT
+	select OF_LIBFDT_OVERLAY
+	help
+	  Source the devicetree from a firmware-owned partition rather than
+	  from the operating-system image. The partition carries a FIT whose
+	  images hold the base DTB and its overlays, and whose configurations
+	  name the bootable combinations. The assembled devicetree can be
+	  handed to the OS, so it can be updated as part of the firmware,
+	  independently of the operating system.
+
+	  For secure boot, sign the FIT configurations and enable
+	  FIT_SIGNATURE with a required key in the control devicetree; the
+	  standard verified-boot policy then rejects unsigned FITs.
+
+	  EFI consumers use the shared staging helper, but the loader itself is
+	  generic. This is intended for platforms following EBBR / Arm
+	  SystemReady IR. Say N unless you are booting such a platform.
+
 config FIT_IMAGE_POST_PROCESS
 	bool "Enable post-processing of FIT artifacts after loading by U-Boot"
 	depends on SOCFPGA_SECURE_VAB_AUTH

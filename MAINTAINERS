@@ -851,14 +851,17 @@ S:	Maintained
 F:	boot/bootdev*.c
 F:	boot/bootflow.c
 F:	boot/bootmeth*.c
+F:	boot/firmware_fdt.c
 F:	cmd/bootdev.c
 F:	cmd/bootflow.c
+F:	doc/device-tree-bindings/firmware-fdt.txt
 F:	doc/develop/bootstd/
 F:	drivers/mmc/mmc_bootdev.c
 F:	include/bootdev.h
 F:	include/bootflow.h
 F:	include/bootmeth.h
 F:	include/bootstd.h
+F:	include/firmware_fdt.h
 F:	test/boot/
 
 BOOTMETH_ANDROID

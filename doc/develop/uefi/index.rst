@@ -14,3 +14,4 @@ can be run an UEFI payload.
    u-boot_on_efi.rst
    iscsi.rst
    fwu_updates.rst
+   firmware_fdt.rst

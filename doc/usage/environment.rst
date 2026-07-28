@@ -243,6 +243,17 @@ fdtcontroladdr
     device tree used by U-Boot when CONFIG_OF_CONTROL is
     defined.
 
+fw_fdt_config
+    Name of the configuration to select from a firmware-owned devicetree
+    FIT. If unset, U-Boot uses compatible best-match against the control
+    devicetree, falling back to the FIT's default configuration.
+    Configuration chaining with ``#`` is not supported.
+
+fw_fdt_part
+    Partition number containing the firmware-owned devicetree FIT. This can
+    pin one side of an A/B firmware layout. If unset, U-Boot uses the
+    partition selectors in the ``u-boot,firmware-fdt-block`` control-DT node.
+
 initrd_high
     restrict positioning of initrd images:
     If this variable is not set, initrd images will be

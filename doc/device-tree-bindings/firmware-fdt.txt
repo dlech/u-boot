@@ -1,0 +1,150 @@
+U-Boot firmware-owned devicetree source (firmware-fdt)
+======================================================
+
+Some platforms (EBBR / Arm SystemReady IR) keep the devicetree on a
+firmware-owned partition, updated independently of the operating system,
+rather than shipping it in the OS image or the EFI System Partition. The
+partition carries a FIT: its images hold the base DTB and any
+overlays, and each of its configurations names one bootable combination
+through the standard 'fdt' property. U-Boot selects a configuration,
+verifies it per the usual verified-boot policy, assembles the devicetree
+(base plus overlays, in order) and installs it via the EFI configuration
+table.
+
+The source node's compatible selects the storage backend and its locator
+properties. This document defines the first backend,
+"u-boot,firmware-fdt-block", which reads the FIT from a filesystem on a GPT
+partition of a block device. Additional backends may load the same FIT from
+other firmware storage, for example a UBI volume on MTD, without changing
+FIT selection, verification, assembly or consumers.
+
+For the block backend, a standalone node points at the media device that owns
+the partition by phandle. The node may live anywhere in the control devicetree
+(it is found by compatible); a node with status "disabled" is ignored.
+
+
+firmware-fdt source node
+------------------------
+
+Required properties:
+
+compatible:
+   "u-boot,firmware-fdt-block" - the FIT lives in a filesystem on a
+   GPT partition of a block device. The suffix names the first implemented
+   backend. Sibling compatibles may define other source backends and their
+   storage-specific locator properties later.
+
+firmware-fdt-store:
+   phandle to the media device (UCLASS_MMC, ...) that owns the firmware
+   partition
+
+The partition is selected by the 'fw_fdt_part' environment variable, if set,
+which pins a partition number (for A/B firmware partitions). Otherwise the
+first partition matching every configured selector is used: when both
+'partition-type-uuid' and 'partition-name' are present, both must match (so
+a misprovisioned disk fails closed instead of silently selecting whichever
+same-type partition comes first).
+
+At least one of 'partition-type-uuid' or 'partition-name' must be present.
+
+Optional properties:
+
+partition-type-uuid:
+   GPT partition type UUID (string, case-insensitive) identifying the
+   firmware partition. When A/B firmware partitions share a type UUID,
+   'partition-name' disambiguates between them.
+
+partition-name:
+   GPT partition name (string) identifying the firmware partition. Used to
+   disambiguate, or as a fallback when 'partition-type-uuid' is absent.
+
+filename:
+   Path of the FIT on the partition (default: "fdt.itb").
+
+
+Environment
+-----------
+
+Two optional environment variables select among what the FIT ships:
+
+   fw_fdt_part     pin a specific partition number (A/B firmware partitions)
+   fw_fdt_config   name of the FIT configuration to use; when unset the
+                   best compatible match against the control devicetree is
+                   used, falling back to the FIT's default configuration
+
+``fw_fdt_config`` selects exactly one configuration; U-Boot's ``#`` syntax
+for composing several configurations is rejected so the base, overlay set and
+ordering remain one authenticated unit. Both values only choose among
+combinations the firmware author shipped; with signed configurations a
+tampered value cannot select an unsigned combination.
+
+
+The FIT
+-------
+
+This is a standard FIT image. Every image must be a flat devicetree
+('type = "flat_dt"') without a load address (images carrying a 'load'
+property are rejected), self-contained (no external data). For secure boot,
+sign the configurations and enable FIT_SIGNATURE with a required key in the
+control devicetree. Example source (.its):
+
+	/dts-v1/;
+	/ {
+		description = "Firmware-owned devicetree";
+		#address-cells = <1>;
+
+		images {
+			fdt-base {
+				description = "base board devicetree";
+				data = /incbin/("board.dtb");
+				type = "flat_dt";
+				arch = "arm64";
+				compression = "none";
+				hash-1 { algo = "sha256"; };
+			};
+			fdt-panel {
+				description = "panel overlay";
+				data = /incbin/("panel.dtbo");
+				type = "flat_dt";
+				arch = "arm64";
+				compression = "none";
+				hash-1 { algo = "sha256"; };
+			};
+		};
+
+		configurations {
+			default = "conf-panel";
+			conf-panel {
+				fdt = "fdt-base", "fdt-panel";
+				signature-1 {
+					algo = "sha256,rsa2048";
+					key-name-hint = "fw";
+					sign-images = "fdt";
+				};
+			};
+			conf-base {
+				fdt = "fdt-base";
+				signature-1 {
+					algo = "sha256,rsa2048";
+					key-name-hint = "fw";
+					sign-images = "fdt";
+				};
+			};
+		};
+	};
+
+Note: with FIT_SIGNATURE enabled, node and configuration names must not
+contain the '@' character.
+
+
+Example
+-------
+
+	firmware-fdt {
+		compatible = "u-boot,firmware-fdt-block";
+		firmware-fdt-store = <&mmc0>;
+		partition-type-uuid =
+			"384e979b-eb76-435a-a3a6-1a071dbad91d";
+		partition-name = "firmware";
+		filename = "fdt.itb";
+	};

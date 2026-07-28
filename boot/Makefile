@@ -27,6 +27,7 @@ obj-$(CONFIG_$(PHASE_)BOOTSTD) += bootstd-uclass.o
 
 obj-$(CONFIG_$(PHASE_)BOOTSTD_MENU) += bootflow_menu.o
 obj-$(CONFIG_$(PHASE_)BOOTSTD_PROG) += prog_boot.o
+obj-$(CONFIG_$(PHASE_)FIRMWARE_FDT) += firmware_fdt.o
 
 obj-$(CONFIG_$(PHASE_)BOOTMETH_EXTLINUX) += bootmeth_extlinux.o
 obj-$(CONFIG_$(PHASE_)BOOTMETH_EXTLINUX_PXE) += bootmeth_pxe.o
