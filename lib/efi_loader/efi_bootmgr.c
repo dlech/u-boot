@@ -14,8 +14,10 @@
 #include <efi.h>
 #include <efi_device_path.h>
 #include <env.h>
+#include <firmware_fdt.h>
 #include <log.h>
 #include <malloc.h>
+#include <mapmem.h>
 #include <net.h>
 #include <part.h>
 #include <efi_loader.h>
@@ -1296,7 +1298,8 @@ out:
  *
  * Invoke the EFI boot manager and execute a binary according to its boot
  * options. The devicetree precedence, from highest to lowest, is an FDT
- * passed in @fdt, the Boot#### load-option FDT, then the distro/ESP FDT.
+ * passed in @fdt, a configured firmware-owned FDT, the Boot#### load-option
+ * FDT, then the distro/ESP FDT.
  *
  * Return:	status code
  */
@@ -1321,12 +1324,26 @@ efi_status_t efi_bootmgr_run(void *fdt)
 
 	if (!IS_ENABLED(CONFIG_GENERATE_ACPI_TABLE)) {
 		if (!fdt) {
+			ulong fdt_addr = env_get_hex("fdt_addr_r", 0);
+			int err;
+
+			err = efi_stage_firmware_fdt(fdt_addr, &fdt_size, NULL);
+			if (!err) {
+				fdt = map_sysmem(fdt_addr, fdt_size);
+			} else if (err != -ENOENT) {
+				ret = EFI_DEVICE_ERROR;
+				goto out;
+			}
+		}
+
+		if (!fdt) {
 			ret = load_fdt_from_load_option(&fdt_lo);
 			if (ret != EFI_SUCCESS)
-				return ret;
+				goto out;
 			if (fdt_lo)
 				fdt = fdt_lo;
 		}
+
 		if (!fdt) {
 			efi_load_distro_fdt(handle, &fdt_distro, &fdt_size);
 			fdt = fdt_distro;
@@ -1339,7 +1356,9 @@ efi_status_t efi_bootmgr_run(void *fdt)
 	 */
 	ret = efi_install_fdt(fdt);
 
+out:
 	if (!IS_ENABLED(CONFIG_GENERATE_ACPI_TABLE)) {
+		/* efi_install_fdt() has copied the devicetree */
 		free(fdt_lo);
 		if (fdt_distro)
 			efi_free_pages((uintptr_t)fdt_distro,
