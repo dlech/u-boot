@@ -17,6 +17,7 @@
 #include <efi_loader.h>
 #include <env.h>
 #include <extension_board.h>
+#include <firmware_fdt.h>
 #include <fs.h>
 #include <malloc.h>
 #include <mapmem.h>
@@ -100,7 +101,7 @@ static int distro_efi_check(struct udevice *dev, struct bootflow_iter *iter)
 static int distro_efi_try_bootflow_files(struct udevice *dev,
 					 struct bootflow *bflow)
 {
-	ulong fdt_addr, size, overlay_addr;
+	ulong fdt_addr, fw_fdt_size, size, overlay_addr;
 	const struct extension *extension;
 	struct fdt_header *working_fdt;
 	struct blk_desc *desc = NULL;
@@ -129,6 +130,22 @@ static int distro_efi_try_bootflow_files(struct udevice *dev,
 	bflow->state = BOOTFLOWST_READY;
 
 	fdt_addr = env_get_hex("fdt_addr_r", 0);
+
+	/*
+	 * A staged firmware-owned devicetree is complete and authoritative,
+	 * so return without considering any other devicetree source. The
+	 * extension overlays below are deliberately not applied on top:
+	 * such combinations belong in the FIT as configurations.
+	 */
+	ret = efi_stage_firmware_fdt(fdt_addr, &fw_fdt_size,
+				     &bflow->fdt_fname);
+	if (!ret) {
+		bflow->fdt_size = fw_fdt_size;
+		bflow->fdt_addr = fdt_addr;
+		return 0;
+	}
+	if (ret != -ENOENT)
+		return log_msg_ret("fwf", ret);
 
 	/* try the various available names */
 	ret = -ENOENT;
@@ -222,9 +239,9 @@ static int distro_efi_read_bootflow_net(struct bootflow *bflow)
 	char file_addr[17], fname[256];
 	char *tftp_argv[] = {"tftp", file_addr, fname, NULL};
 	struct cmd_tbl cmdtp = {};	/* dummy */
-	const char *addr_str, *fdt_addr_str, *bootfile_name;
+	const char *addr_str, *bootfile_name;
 	int ret, arch, size;
-	ulong addr, fdt_addr;
+	ulong addr, fdt_addr, fw_fdt_size;
 	char str[36];
 
 	ret = get_efi_pxe_vci(str, sizeof(str));
@@ -268,6 +285,24 @@ static int distro_efi_read_bootflow_net(struct bootflow *bflow)
 	if (!bflow->fname)
 		return log_msg_ret("fi0", -ENOMEM);
 
+	/*
+	 * Read fdt_addr_r once so the firmware-FDT source and network fallback
+	 * below stage at the same address. A configured firmware-owned
+	 * devicetree outranks the network-provided one (and the prior-stage /
+	 * built-in devicetree below), so a DHCP/TFTP server cannot replace it.
+	 */
+	fdt_addr = env_get_hex("fdt_addr_r", 0);
+	ret = efi_stage_firmware_fdt(fdt_addr, &fw_fdt_size,
+				     &bflow->fdt_fname);
+	if (!ret) {
+		bflow->fdt_size = fw_fdt_size;
+		bflow->fdt_addr = fdt_addr;
+		bflow->state = BOOTFLOWST_READY;
+		return 0;
+	}
+	if (ret != -ENOENT)
+		return log_msg_ret("fwf", ret);
+
 	/* read the DT file also */
 	ret = efi_get_distro_fdt_name(fname, sizeof(fname), 0);
 	if (ret == -EALREADY) {
@@ -279,10 +314,8 @@ static int distro_efi_read_bootflow_net(struct bootflow *bflow)
 		return log_msg_ret("nam", ret);
 	}
 
-	fdt_addr_str = env_get("fdt_addr_r");
-	if (!fdt_addr_str)
+	if (!fdt_addr)
 		return log_msg_ret("fdt", -EINVAL);
-	fdt_addr = hextoul(fdt_addr_str, NULL);
 	sprintf(file_addr, "%lx", fdt_addr);
 
 	bflow->fdt_fname = strdup(fname);
