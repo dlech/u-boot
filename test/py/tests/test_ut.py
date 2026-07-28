@@ -614,6 +614,186 @@ def setup_rauc_image(ubman):
     boot.cleanup()
     root.cleanup()
 
+def setup_firmware_fdt_image(ubman):
+    """Create mmc11.img for the firmware_fdt tests
+
+    A GPT disk with two firmware partitions (A/B) sharing a firmware type
+    UUID; partition 1 (label 'firmware') holds a FAT filesystem with the
+    FIT (fdt.itb) carrying a base DTB and an overlay, with two
+    configurations: the default applies the overlay, 'conf-base' does not.
+    """
+    Partition = collections.namedtuple('part', 'start,size,name')
+    parts = {}
+
+    mmc_dev = 11
+    fname = os.path.join(ubman.config.persistent_data_dir,
+                         f'mmc{mmc_dev}.img')
+    fw_type = '384e979b-eb76-435a-a3a6-1a071dbad91d'
+    sect_size = 512
+
+    # Compile a tiny base DTB and an overlay, then wrap them in the FIT
+    src = os.path.join(ubman.config.persistent_data_dir, 'fwfdt')
+    mkdir_cond(src)
+    base_dtb = os.path.join(src, 'base.dtb')
+    match_dtb = os.path.join(src, 'match.dtb')
+    ovl_dtbo = os.path.join(src, 'overlay.dtbo')
+    utils.run_and_log(
+        ubman, f'dtc -O dtb -o {base_dtb}',
+        stdin=b'/dts-v1/; / { compatible = "test,fw-fdt-base"; '
+              b'fw-base-prop = "base"; };')
+    utils.run_and_log(
+        ubman, f'dtc -O dtb -o {ovl_dtbo}',
+        stdin=b'/dts-v1/; /plugin/; &{/} { fw-overlay-prop = "applied"; };')
+    utils.run_and_log(
+        ubman, f'dtc -O dtb -o {match_dtb}',
+        stdin=b'/dts-v1/; / { compatible = "sandbox"; '
+              b'fw-best-prop = "sandbox"; };')
+
+    its = os.path.join(src, 'fdt.its')
+    with open(its, 'w', encoding='ascii') as outf:
+        outf.write(f'''
+/dts-v1/;
+/ {{
+\tdescription = "Firmware-owned OS devicetree";
+\t#address-cells = <1>;
+
+\timages {{
+\t\tfdt-base {{
+\t\t\tdata = /incbin/("{base_dtb}");
+\t\t\ttype = "flat_dt";
+\t\t\tarch = "sandbox";
+\t\t\tcompression = "none";
+\t\t\thash-1 {{ algo = "sha256"; }};
+\t\t}};
+\t\tfdt-overlay {{
+\t\t\tdata = /incbin/("{ovl_dtbo}");
+\t\t\ttype = "flat_dt";
+\t\t\tarch = "sandbox";
+\t\t\tcompression = "none";
+\t\t\thash-1 {{ algo = "sha256"; }};
+\t\t}};
+\t}};
+
+\tconfigurations {{
+\t\tdefault = "conf-overlay";
+\t\tconf-overlay {{
+\t\t\tfdt = "fdt-base", "fdt-overlay";
+\t\t}};
+\t\tconf-base {{
+\t\t\tfdt = "fdt-base";
+\t\t}};
+\t}};
+}};
+''')
+
+    fs_dir = os.path.join(src, 'fs')
+    mkdir_cond(fs_dir)
+    mkimage = os.path.join(ubman.config.build_dir, 'tools/mkimage')
+    fit = os.path.join(fs_dir, 'fdt.itb')
+    utils.run_and_log(ubman, f'{mkimage} -f {its} {fit}')
+
+    # An external-data variant, which firmware_fdt_load() must refuse
+    utils.run_and_log(
+        ubman, f'{mkimage} -E -f {its} {os.path.join(fs_dir, "fdt-ext.itb")}')
+
+    # A FIT with two distinct compatibles for CONFIG_FIT_BEST_MATCH coverage
+    best_its = os.path.join(src, 'fdt-best.its')
+    with open(best_its, 'w', encoding='ascii') as outf:
+        outf.write(f'''
+/dts-v1/;
+/ {{
+\tdescription = "Firmware-owned compatible selection test";
+\t#address-cells = <1>;
+
+\timages {{
+\t\tfdt-generic {{
+\t\t\tdata = /incbin/("{base_dtb}");
+\t\t\ttype = "flat_dt";
+\t\t\tarch = "sandbox";
+\t\t\tcompression = "none";
+\t\t\thash-1 {{ algo = "sha256"; }};
+\t\t}};
+\t\tfdt-sandbox {{
+\t\t\tdata = /incbin/("{match_dtb}");
+\t\t\ttype = "flat_dt";
+\t\t\tarch = "sandbox";
+\t\t\tcompression = "none";
+\t\t\thash-1 {{ algo = "sha256"; }};
+\t\t}};
+\t}};
+
+\tconfigurations {{
+\t\tdefault = "conf-generic";
+\t\tconf-generic {{
+\t\t\tfdt = "fdt-generic";
+\t\t}};
+\t\tconf-sandbox {{
+\t\t\tfdt = "fdt-sandbox";
+\t\t}};
+\t}};
+}};
+''')
+    utils.run_and_log(
+        ubman,
+        f'{mkimage} -f {best_its} {os.path.join(fs_dir, "fdt-best.itb")}')
+
+    # Corrupt base data without updating its hash: loading must fail closed
+    with open(fit, 'rb') as inf:
+        corrupt_data = bytearray(inf.read())
+    with open(base_dtb, 'rb') as inf:
+        base_data = inf.read()
+    data_offset = corrupt_data.find(base_data)
+    if data_offset < 0:
+        raise ValueError('Cannot locate base DTB in firmware-FDT FIT')
+    corrupt_data[data_offset + len(base_data) - 1] ^= 1
+    with open(os.path.join(fs_dir, 'fdt-corrupt.itb'), 'wb') as outf:
+        outf.write(corrupt_data)
+
+    # A corrupt overlay must be fatal too, never silently skipped
+    with open(fit, 'rb') as inf:
+        corrupt_data = bytearray(inf.read())
+    with open(ovl_dtbo, 'rb') as inf:
+        overlay_data = inf.read()
+    data_offset = corrupt_data.find(overlay_data)
+    if data_offset < 0:
+        raise ValueError('Cannot locate overlay DTBO in firmware-FDT FIT')
+    corrupt_data[data_offset + len(overlay_data) - 1] ^= 1
+    with open(os.path.join(fs_dir, 'fdt-corrupt-overlay.itb'), 'wb') as outf:
+        outf.write(corrupt_data)
+
+    fat_img = fs_helper.mk_fs(ubman.config, 'vfat', 1 << 20, 'fwfdt',
+                              src_dir=fs_dir)
+    with open(fat_img, 'rb') as inf:
+        fat_data = inf.read()
+
+    # GPT with two same-type firmware partitions; the FAT goes in partition 1
+    fat_sects = (len(fat_data) + sect_size - 1) // sect_size
+    utils.run_and_log(ubman, f'qemu-img create {fname} 8M')
+    utils.run_and_log(ubman, f'cgpt create {fname}')
+    ptr = 40
+    for num, label in ((1, 'firmware'), (2, 'firmware_b')):
+        utils.run_and_log(
+            ubman,
+            f'cgpt add -i {num} -b {ptr} -s {fat_sects} -t {fw_type} '
+            f'-l {label} {fname}')
+        ptr += fat_sects
+    utils.run_and_log(ubman, f'cgpt boot -p {fname}')
+    out = utils.run_and_log(ubman, f'cgpt show -q {fname}')
+    for line in out.splitlines():
+        start, size, num, name = line.split(maxsplit=3)
+        parts[int(num)] = Partition(int(start), int(size), name)
+
+    # Splice the FAT image into partition 1
+    with open(fname, 'rb') as inf:
+        disk_data = inf.read()
+    start = parts[1].start * sect_size
+    disk_data = disk_data[:start] + fat_data + disk_data[start + len(fat_data):]
+    with open(fname, 'wb') as outf:
+        outf.write(disk_data)
+
+    return fname
+
+
 @pytest.mark.buildconfigspec('cmd_bootflow')
 @pytest.mark.buildconfigspec('sandbox')
 def test_ut_dm_init_bootstd(ubman):
@@ -626,6 +806,7 @@ def test_ut_dm_init_bootstd(ubman):
     setup_android_image(ubman)
     setup_efi_image(ubman)
     setup_rauc_image(ubman)
+    setup_firmware_fdt_image(ubman)
 
     # Restart so that the new mmc1.img is picked up
     ubman.restart_uboot()
