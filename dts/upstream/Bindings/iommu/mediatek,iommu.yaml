@@ -90,6 +90,7 @@ properties:
           - mediatek,mt8195-iommu-vpp        # generation two
           - mediatek,mt8195-iommu-infra      # generation two
           - mediatek,mt8365-m4u  # generation two
+          - mediatek,mt8366-iommu-mm
 
       - description: mt7623 generation one
         items:

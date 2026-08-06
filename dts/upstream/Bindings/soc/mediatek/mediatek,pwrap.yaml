@@ -53,6 +53,7 @@ properties:
           - enum:
               - mediatek,mt8188-pwrap
               - mediatek,mt8189-pwrap
+              - mediatek,mt8366-pwrap
           - const: mediatek,mt8195-pwrap
           - const: syscon
 

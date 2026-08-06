@@ -29,6 +29,7 @@ properties:
           - mediatek,mt8192-scpsys
           - mediatek,mt8195-scpsys
           - mediatek,mt8365-scpsys
+          - mediatek,mt8366-scpsys
       - const: syscon
       - const: simple-mfd
 

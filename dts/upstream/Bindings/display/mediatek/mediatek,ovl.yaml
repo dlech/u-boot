@@ -29,6 +29,7 @@ properties:
           - mediatek,mt8192-disp-ovl
           - mediatek,mt8195-disp-ovl
           - mediatek,mt8195-mdp3-ovl
+          - mediatek,mt8366-disp-ovl
       - items:
           - enum:
               - mediatek,mt7623-disp-ovl

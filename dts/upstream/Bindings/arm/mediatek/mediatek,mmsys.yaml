@@ -40,6 +40,7 @@ properties:
               - mediatek,mt8195-vppsys0
               - mediatek,mt8195-vppsys1
               - mediatek,mt8365-mmsys
+              - mediatek,mt8366-mmsys
           - const: syscon
 
       - description: vdosys0 and vdosys1 are 2 display HW pipelines,

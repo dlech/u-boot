@@ -35,6 +35,7 @@ properties:
               - mediatek,mt8188-mipi-tx
               - mediatek,mt8195-mipi-tx
               - mediatek,mt8365-mipi-tx
+              - mediatek,mt8366-mipi-tx
           - const: mediatek,mt8183-mipi-tx
       - const: mediatek,mt2701-mipi-tx
       - const: mediatek,mt8173-mipi-tx

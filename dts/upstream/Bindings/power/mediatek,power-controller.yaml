@@ -38,6 +38,7 @@ properties:
       - mediatek,mt8196-hwv-scp-power-controller
       - mediatek,mt8196-power-controller
       - mediatek,mt8365-power-controller
+      - mediatek,mt8366-power-controller
 
   '#power-domain-cells':
     const: 1

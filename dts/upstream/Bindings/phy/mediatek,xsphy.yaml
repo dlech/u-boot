@@ -50,6 +50,7 @@ properties:
           - mediatek,mt3611-xsphy
           - mediatek,mt3612-xsphy
           - mediatek,mt7988-xsphy
+          - mediatek,mt8189-xsphy
       - const: mediatek,xsphy
 
   reg:
