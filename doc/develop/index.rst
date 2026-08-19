@@ -53,6 +53,7 @@ Implementation
    printf
    smbios
    spl
+   splash
    falcon
    uefi/index
    vbe
