@@ -79,6 +79,26 @@ with the environment variable *splashoffset*, given in hexadecimal. When
 *splashoffset* is not set, the ``offset`` field of the board's splash location
 entry is used instead.
 
+The default weak splash_screen_prepare() passes the ``default_splash_locations``
+array, defined in ``common/splash.c``, to splash_source_load(). It provides the
+following *splashsource* names out of the box:
+
+======== ============ ================== ========================
+Name     Storage      Type               devpart default
+======== ============ ================== ========================
+sf       SPI flash    raw, offset 0x0     n/a
+mmc_fs   MMC          file system         ``0:1``
+mmc_raw  MMC          raw                 ``0:1``
+usb_fs   USB          file system         ``0:1``
+sata_fs  SATA         file system         ``0:1``
+======== ============ ================== ========================
+
+A board that needs different locations, other storage backends (e.g. NAND,
+UBI/UBIFS) or a different devpart default should provide its own array of
+``struct splash_location`` entries (see ``include/splash.h``) and call
+splash_source_load() from its own splash_screen_prepare() implementation
+instead of relying on the default one.
+
 Positioning the splash image
 ----------------------------
 
