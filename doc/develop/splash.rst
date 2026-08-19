@@ -74,6 +74,11 @@ conventions used by the load commands, e.g. ``0:1`` or ``0#splash``. When
 *splashdevpart* is not set, the ``devpart`` field of the board's splash location
 entry is used instead.
 
+For raw storage and FIT locations, the offset to read from can be overridden
+with the environment variable *splashoffset*, given in hexadecimal. When
+*splashoffset* is not set, the ``offset`` field of the board's splash location
+entry is used instead.
+
 Positioning the splash image
 ----------------------------
 
