@@ -72,6 +72,37 @@ platform. The location of the buffer and size are set with
 may be overridden on the fastboot command line using ``-l`` and
 ``-s``.
 
+Fastboot in SPL
+^^^^^^^^^^^^^^^
+
+Fastboot can be used from SPL without enabling the command line. Enable
+``CONFIG_SPL_FASTBOOT`` together with the platform's SPL USB gadget support,
+then start the session from board code::
+
+   ret = fastboot_usb_run(controller_index, NULL, 0);
+
+A ``NULL`` buffer and zero size select ``CONFIG_FASTBOOT_BUF_ADDR`` and
+``CONFIG_FASTBOOT_BUF_SIZE``. Passing explicit values overrides these
+defaults. Unlike the command-line invocation, an SPL session cannot be aborted
+from the local console.
+
+SPL supports ``getvar``, ``download``, ``continue`` and the ``set_active``
+stub. The ``continue`` command ends the session and returns control to the
+caller. The ``flash`` and ``erase`` commands are available when their SPL
+backend is enabled.
+
+MMC flash and erase support is enabled with
+``CONFIG_SPL_FASTBOOT_FLASH_MMC``. The SPL partition-table parser matching the
+storage layout must also be enabled, for example ``CONFIG_SPL_EFI_PARTITION``
+for GPT.
+
+Reboot commands require ``CONFIG_SPL_FASTBOOT_REBOOT`` and a platform
+``reset_cpu()`` implementation. The ``reboot-bootloader``, ``reboot-fastboot``
+and ``reboot-recovery`` commands also require a platform
+``fastboot_set_reboot_flag()`` implementation.
+
+The ``boot``, ``ucmd``, ``acmd`` and OEM commands are not available in SPL.
+
 Fastboot environment variables
 ------------------------------
 
