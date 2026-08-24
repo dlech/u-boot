@@ -158,7 +158,14 @@ def run_batch(src, base_sha, count, boards, out_dir, werror, summary_file):
     contiguous run of history ending there (count=1 always is)."""
     git(src, "branch", "-f", BUILD_BRANCH, base_sha)
     try:
-        flags = ["-o", out_dir, "-b", BUILD_BRANCH, "-c", str(count), "-M", *boards]
+        # -M (--allow-missing): fake out missing external blobs (e.g.
+        # mt7621_stage_sram.bin) instead of treating them as a build error --
+        # CI will never have MediaTek's proprietary binaries.
+        # -W (--ignore-warnings): without it, buildman still exits 101 (not
+        # 0) whenever -M had to fake a blob, which build_gate.py would
+        # otherwise treat as a build failure. Per buildman.rst, defaulting
+        # both on for every run is the documented, generally-safe setting.
+        flags = ["-o", out_dir, "-b", BUILD_BRANCH, "-c", str(count), "-M", "-W", *boards]
         if werror:
             flags.append("-E")
         log("running: buildman " + " ".join(flags))

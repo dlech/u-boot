@@ -89,6 +89,30 @@ Configurable via the `MTK_BUILDMAN_TERMS` CI/CD variable (default
 `"mediatek mt7628"`) -- widening or narrowing scope is a variable change, not
 a file edit. Recheck the board count if defconfigs are added/removed.
 
+## Missing external blobs
+
+Some boards (e.g. `mt7621_rfb`) reference proprietary blobs (`mt7621_stage_sram.bin`)
+CI will never have. Buildman is always run with `-M` (`--allow-missing`, fakes
+the blob instead of failing) and `-W` (`--ignore-warnings`, needed because `-M`
+alone still exits 101, which `build_gate.py` would otherwise treat as a build
+failure) -- this is buildman's own documented "generally safe to default on"
+combination (see `buildman.rst`, "Support for binary blobs"), not something
+conditional.
+
+## Worktree caching
+
+Buildman keeps one persistent git worktree per build thread under
+`<OUT_DIR>/.bm-work/<n>/`, and skips re-creating one that's already there
+(confirmed in `tools/buildman/builder.py`) -- so `.gitlab-ci-mediatek.yml`
+points `OUT_DIR` at a path inside `$CI_PROJECT_DIR` (`.mtk-build`) and caches
+`$OUT_DIR/.bm-work` across pipeline runs via GitLab's `cache:` key, turning the
+~30 sequential "Checking out worktree" steps seen on a cold run into a cheap
+no-op on later ones. Keyed per-runner (`$CI_RUNNER_ID`), not per-commit, since
+the point is to keep reusing the same worktrees; a stale one is still correct
+since `build_gate.py`'s full unshallow clone (`GIT_DEPTH: "0"`) means any
+commit is always reachable for the `git checkout --force` buildman does inside
+it.
+
 ## Running locally
 
 ```sh
