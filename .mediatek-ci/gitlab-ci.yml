@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# MediaTek U-Boot CI: build gate.
+#
+# Builds every commit on mediatek-staging that isn't already upstream (and
+# isn't from mediatek-test-support itself, which reaches mediatek-staging
+# only via a merge commit). Compile-only for now -- no flashing/hardware
+# testing yet.
+#
+# Deploy: set this project's Settings -> CI/CD -> General pipelines ->
+# "CI/CD configuration file" to .mediatek-ci/gitlab-ci.yml. Kept as
+# a separate file (not a change to .gitlab-ci.yml) so it can never clobber
+# upstream's own CI config and survives rebases cleanly.
+#
+# See .mediatek-ci/README.md for the full design (commit-range computation,
+# board scope, why there's no persisted build-record).
+
+variables:
+  MTK_UPSTREAM_URL:     "https://git.u-boot-project.org/u-boot/u-boot.git"
+  MTK_UPSTREAM_REMOTE:  "mtk-upstream"
+  MTK_UPSTREAM_REFS:    "main next"
+  MTK_STAGING_BRANCH:   "mediatek-staging"
+  MTK_TEST_SUPPORT_REF: "mediatek-test-support"
+  MTK_BUILDMAN_TERMS:   "mediatek mt7628"
+  # Full, unshallow clone: the commit-range computation below needs real
+  # history on both sides to find where mediatek-staging actually diverges
+  # from upstream main/next, and a too-shallow clone would silently produce
+  # a *wrong* set rather than erroring. Revisit once a safe minimum depth is
+  # confirmed.
+  GIT_DEPTH:             "0"
+  WERROR:                "0"
+
+stages: [ build ]
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH == $MTK_STAGING_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+
+# The pinned U-Boot CI runner image (cross-toolchains + buildman). Bump deliberately.
+.mtk_image: &mtk_image trini/u-boot-gitlab-ci-runner:noble-20251013-23Jan2026
+
+mediatek build:
+  stage: build
+  image: *mtk_image
+  # No tags: -- run on any available runner.
+  before_script:
+    - git remote add "${MTK_UPSTREAM_REMOTE}" "${MTK_UPSTREAM_URL}" 2>/dev/null || true
+    - >
+      for ref in ${MTK_UPSTREAM_REFS}; do
+        git fetch --no-tags "${MTK_UPSTREAM_REMOTE}" "+refs/heads/${ref}:refs/remotes/${MTK_UPSTREAM_REMOTE}/${ref}";
+      done
+    - git fetch --no-tags origin "+refs/heads/${MTK_TEST_SUPPORT_REF}:refs/remotes/origin/${MTK_TEST_SUPPORT_REF}"
+  script:
+    - python3 .mediatek-ci/scripts/build_gate.py
+  artifacts:
+    when: always
+    paths: [ build-summary.txt ]
+    expire_in: 1 week
