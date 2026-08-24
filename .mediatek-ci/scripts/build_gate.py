@@ -83,23 +83,58 @@ def rev_exists(src, ref):
     return git(src, "rev-parse", "-q", "--verify", ref, check=False).returncode == 0
 
 
-def resolve_exclude_refs(src):
-    """Refs whose history should NOT be built: upstream main/next, and
-    mediatek-test-support itself (its commits only reach mediatek-staging via
-    a merge commit and aren't "new MediaTek work")."""
+def resolve_upstream_excludes(src):
+    """Upstream refs whose history should NOT be built. Mandatory: die if
+    one isn't fetched, since silently building against the wrong base would
+    be worse than failing loudly."""
     upstream_remote = os.environ.get("MTK_UPSTREAM_REMOTE", "mtk-upstream")
     upstream_refs = os.environ.get("MTK_UPSTREAM_REFS", "main next").split()
-    ts_remote = os.environ.get("MTK_TEST_SUPPORT_REMOTE", "origin")
-    ts_ref = os.environ.get("MTK_TEST_SUPPORT_REF", "mediatek-test-support")
 
-    # MTK_*_REMOTE="" addresses a local branch directly (e.g. for local
-    # testing against a branch that hasn't been pushed anywhere yet).
+    # MTK_UPSTREAM_REMOTE="" addresses a local branch directly (e.g. for
+    # local testing against a branch that hasn't been pushed anywhere yet).
     excludes = [f"{upstream_remote}/{b}" if upstream_remote else b for b in upstream_refs]
-    excludes.append(f"{ts_remote}/{ts_ref}" if ts_remote else ts_ref)
 
     missing = [r for r in excludes if not rev_exists(src, r)]
     if missing:
-        die(f"exclusion ref(s) not found (fetch them first): {', '.join(missing)}")
+        die(f"upstream exclusion ref(s) not found (fetch them first): {', '.join(missing)}")
+    return excludes
+
+
+def resolve_test_support_excludes(src, target):
+    """Refs/commits whose history should NOT be built because they're from
+    mediatek-test-support itself, not new MediaTek work: its own commits
+    only reach mediatek-staging via a merge commit.
+
+    Two independent checks, either being enough on its own:
+      - the mediatek-test-support branch ref, best-effort (not fatal if
+        missing or behind -- pushing it out of sync with mediatek-staging
+        used to make its own commits get built standalone, checked out
+        against test-support's own stale lineage).
+      - every "Merge branch '<test-support-ref>'" commit found directly in
+        `target`'s own history, excluding that merge's second parent. This
+        is what actually closes the gap above: it's derived purely from
+        `target`'s own DAG, which is already complete the moment `target`
+        itself is pushed, so it can never lag the way a separately-pushed
+        branch ref can.
+    """
+    ts_remote = os.environ.get("MTK_TEST_SUPPORT_REMOTE", "origin")
+    ts_ref = os.environ.get("MTK_TEST_SUPPORT_REF", "mediatek-test-support")
+
+    excludes = []
+    ref = f"{ts_remote}/{ts_ref}" if ts_remote else ts_ref
+    if rev_exists(src, ref):
+        excludes.append(ref)
+    else:
+        log(f"note: {ref} not found -- relying on merge-commit detection below")
+
+    merges = git(src, "log", target, "--merges",
+                 f"--grep=^Merge branch '{ts_ref}'", "--format=%H",
+                 check=False).stdout.split()
+    for merge_sha in merges:
+        second_parent = git(src, "rev-parse", f"{merge_sha}^2", check=False)
+        if second_parent.returncode == 0:
+            excludes.append(second_parent.stdout.strip())
+
     return excludes
 
 
@@ -127,7 +162,7 @@ def resolve_known_good(src):
 def resolve_to_build(src):
     """Oldest-first list of commit SHAs to build."""
     target = os.environ.get("MTK_TARGET_REF") or os.environ.get("CI_COMMIT_SHA", "HEAD")
-    excludes = resolve_exclude_refs(src)
+    excludes = resolve_upstream_excludes(src) + resolve_test_support_excludes(src, target)
     known_good = resolve_known_good(src)
     if known_good:
         excludes.append(known_good)
