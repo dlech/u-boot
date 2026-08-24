@@ -165,13 +165,19 @@ def run_batch(src, base_sha, count, boards, out_dir, werror, summary_file):
         # 0) whenever -M had to fake a blob, which build_gate.py would
         # otherwise treat as a build failure. Per buildman.rst, defaulting
         # both on for every run is the documented, generally-safe setting.
-        flags = ["-o", out_dir, "-b", BUILD_BRANCH, "-c", str(count), "-M", "-W", *boards]
+        # -N (--no-subdirs): without it, buildman nests output under
+        # <out_dir>/<branch-name>/ instead of <out_dir> directly, which would
+        # silently move .bm-work out from under the path .gitlab-ci.yml
+        # caches. Fixed here rather than by pointing the cache at the nested
+        # path, since BUILD_BRANCH is an implementation detail of this
+        # function, not something the CI config should need to know.
+        flags = ["-o", out_dir, "-b", BUILD_BRANCH, "-c", str(count), "-M", "-W", "-N", *boards]
         if werror:
             flags.append("-E")
         log("running: buildman " + " ".join(flags))
         ret = buildman(src, *flags, stream=True).returncode
 
-        summ = buildman(src, "-o", out_dir, "-b", BUILD_BRANCH, "-c", str(count), *boards, "-se")
+        summ = buildman(src, "-o", out_dir, "-b", BUILD_BRANCH, "-c", str(count), "-N", *boards, "-se")
         with open(summary_file, "a") as f:
             f.write(summ.stdout)
         sys.stdout.write(summ.stdout)
