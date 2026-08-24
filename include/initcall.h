@@ -14,18 +14,20 @@ _Static_assert(EVT_COUNT < 256, "Can only support 256 event types with 8 bits");
 
 #define INITCALL(_call) \
 	do { \
-		if (_call()) { \
-			printf("%s(): initcall %s() failed\n", __func__, \
-			       #_call); \
+		int _ret = _call(); \
+		if (_ret) { \
+			printf("%s(): initcall %s() failed (err=%dE)\n", \
+			       __func__, #_call, _ret); \
 			hang(); \
 		} \
 	} while (0)
 
 #define INITCALL_EVT(_evt) \
 	do { \
-		if (event_notify_null(_evt)) { \
-			printf("%s(): event %d/%s failed\n", __func__, _evt, \
-			       event_type_name(_evt)) ; \
+		int _ret = event_notify_null(_evt); \
+		if (_ret) { \
+			printf("%s(): event %d/%s failed (err=%dE)\n", \
+			       __func__, _evt, event_type_name(_evt), _ret); \
 			hang(); \
 		} \
 	} while (0)
