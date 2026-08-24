@@ -22,12 +22,6 @@ variables:
   MTK_STAGING_BRANCH:   "mediatek-staging"
   MTK_TEST_SUPPORT_REF: "mediatek-test-support"
   MTK_BUILDMAN_TERMS:   "mediatek mt7628"
-  # Relative to $CI_PROJECT_DIR, so it can be cached (see `cache:` below).
-  # Buildman keeps one persistent git-worktree per build thread under
-  # <OUT_DIR>/.bm-work/<n>/ and reuses one that's already there instead of
-  # re-running `git worktree add` -- caching that directory across pipeline
-  # runs turns ~30 "Checking out worktree" steps into a cheap no-op.
-  OUT_DIR:               ".mtk-build"
   # Full, unshallow clone: the commit-range computation below needs real
   # history on both sides to find where mediatek-staging actually diverges
   # from upstream main/next, and a too-shallow clone would silently produce
@@ -52,15 +46,6 @@ mediatek build:
   stage: build
   image: *mtk_image
   # No tags: -- run on any available runner.
-  # Persists buildman's per-thread worktrees (see OUT_DIR above) across
-  # pipeline runs on the same runner. Keyed per-runner, not per-commit/branch,
-  # since the point is to keep reusing it; a stale worktree is still correct
-  # (build_gate.py always does a full unshallow clone, so `git checkout
-  # --force <sha>` inside it can reach any commit), just occasionally a
-  # little larger on disk than strictly needed.
-  cache:
-    key: "mtk-buildman-$CI_RUNNER_ID"
-    paths: [ "$OUT_DIR/.bm-work" ]
   before_script:
     # The Docker executor's checkout is owned by a different UID than the
     # container runs as, so git refuses to touch it until told it's safe.

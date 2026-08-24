@@ -99,19 +99,25 @@ failure) -- this is buildman's own documented "generally safe to default on"
 combination (see `buildman.rst`, "Support for binary blobs"), not something
 conditional.
 
-## Worktree caching
+## Worktree checkout overhead (tried caching, reverted)
 
-Buildman keeps one persistent git worktree per build thread under
-`<OUT_DIR>/.bm-work/<n>/`, and skips re-creating one that's already there
-(confirmed in `tools/buildman/builder.py`) -- so `.gitlab-ci-mediatek.yml`
-points `OUT_DIR` at a path inside `$CI_PROJECT_DIR` (`.mtk-build`) and caches
-`$OUT_DIR/.bm-work` across pipeline runs via GitLab's `cache:` key, turning the
-~30 sequential "Checking out worktree" steps seen on a cold run into a cheap
-no-op on later ones. Keyed per-runner (`$CI_RUNNER_ID`), not per-commit, since
-the point is to keep reusing the same worktrees; a stale one is still correct
-since `build_gate.py`'s full unshallow clone (`GIT_DEPTH: "0"`) means any
-commit is always reachable for the `git checkout --force` buildman does inside
-it.
+Building N boards in one buildman invocation makes buildman create N
+per-thread git worktrees up front (`<OUT_DIR>/.bm-work/<n>/`, one full checked
+-out copy of the source tree each), which shows up as ~30 sequential
+"Checking out worktree" steps (~90s) before any compilation starts. Caching
+that directory across pipeline runs (via GitLab's `cache:`) was tried, but
+reverted: caching means archiving/uploading N full source-tree checkouts every
+run, which cost far more time than the checkout it saved.
+
+Upstream's own `.gitlab-ci.yml` avoids this differently: it defines one CI job
+*per board* (~50 of them), each running `buildman -w` (`--work-in-output`),
+which is hard-restricted to exactly one board and one commit
+(`control.py`: *"-w can only be used with a single board/commit"*) and,
+because there's only ever one thing being built, skips the per-thread worktree
+machinery entirely -- GitLab parallelizes across jobs instead of buildman
+parallelizing across worktrees. Adopting that here would mean splitting this
+one job into one-per-board, which is a bigger restructure than this project
+has taken on so far; the ~90s checkout cost is accepted for now.
 
 ## Running locally
 
