@@ -8,11 +8,26 @@
 
 struct dm_stats;
 
+/*
+ * Pick the log level for each helper based on the DM log verbosity choice.
+ * A disabled level falls back to LOGL_DEBUG, which is compiled out by
+ * default. Each level includes the ones below it, so DM_WARN also enables
+ * errors.
+ */
 #if CONFIG_IS_ENABLED(DM_WARN)
-#define dm_warn(fmt...) log(LOGC_DM, LOGL_WARNING, ##fmt)
+#define _DM_WARN_LEVEL	LOGL_WARNING
 #else
-#define dm_warn(fmt...) log(LOGC_DM, LOGL_DEBUG, ##fmt)
+#define _DM_WARN_LEVEL	LOGL_DEBUG
 #endif
+
+#if CONFIG_IS_ENABLED(DM_WARN) || CONFIG_IS_ENABLED(DM_ERR)
+#define _DM_ERR_LEVEL	LOGL_ERR
+#else
+#define _DM_ERR_LEVEL	LOGL_DEBUG
+#endif
+
+#define dm_warn(fmt...) log(LOGC_DM, _DM_WARN_LEVEL, ##fmt)
+#define dm_err(fmt...) log(LOGC_DM, _DM_ERR_LEVEL, ##fmt)
 
 struct list_head;
 

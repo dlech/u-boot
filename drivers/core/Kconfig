@@ -45,28 +45,77 @@ config VPL_DM
 	  full malloc() enabled by CFG_TPL_SYS_MALLOC_START,
 	  consider using CONFIG_TPL_SYS_MALLOC_SIMPLE.
 
-config DM_WARN
-	bool "Enable warnings in driver model"
+choice
+	prompt "Driver model log verbosity"
 	depends on DM
+	default DM_ERR
 	help
-	  Enable this to see warnings related to driver model.
+	  Select which driver model messages are compiled into the binary.
+	  Each level includes the levels below it. Lower verbosity saves code
+	  size by compiling the message strings out (useful for production
+	  builds), while higher verbosity helps with debugging.
+
+config DM_NONE
+	bool "No messages"
+	help
+	  Compile out all driver model messages. This gives the smallest code
+	  size, but a fatal condition gives no hint about its root cause.
+
+config DM_ERR
+	bool "Errors"
+	help
+	  Emit driver model error messages via dm_err(), at ERROR level.
+	  These report fatal conditions that typically prevent the board from
+	  booting. Warnings are compiled out.
+
+config DM_WARN
+	bool "Warnings and errors"
+	help
+	  Emit driver model warnings via dm_warn() (WARNING level) in addition
+	  to errors. This is the most verbose and uses the most code space.
 
 	  Warnings may help with debugging, such as when expected devices do
-	  not bind correctly. If the option is disabled, dm_warn() is compiled
-	  out - it will do nothing when called.
+	  not bind correctly.
+
+endchoice
+
+choice
+	prompt "Driver model log verbosity in SPL"
+	depends on SPL_DM
+	default SPL_DM_ERR
+	help
+	  Select which driver model messages are compiled into the SPL binary.
+	  See the "Driver model log verbosity" choice for details.
+
+config SPL_DM_NONE
+	bool "No messages"
+
+config SPL_DM_ERR
+	bool "Errors"
 
 config SPL_DM_WARN
-	bool "Enable warnings in driver model in SPL"
-	depends on SPL_DM
+	bool "Warnings and errors"
+
+endchoice
+
+choice
+	prompt "Driver model log verbosity in TPL"
+	depends on TPL_DM
+	default TPL_DM_ERR
 	help
-	  Enable this to see warnings related to driver model in SPL
+	  Select which driver model messages are compiled into the TPL binary.
+	  See the "Driver model log verbosity" choice for details.
 
-	  The dm_warn() function can use up quite a bit of space for its
-	  strings. By default this is disabled for SPL builds to save space.
+config TPL_DM_NONE
+	bool "No messages"
 
-	  Warnings may help with debugging, such as when expected devices do
-	  not bind correctly. If the option is disabled, dm_warn() is compiled
-	  out - it will do nothing when called.
+config TPL_DM_ERR
+	bool "Errors"
+
+config TPL_DM_WARN
+	bool "Warnings and errors"
+
+endchoice
 
 config DM_DEBUG
 	bool "Enable debug messages in driver model core"
