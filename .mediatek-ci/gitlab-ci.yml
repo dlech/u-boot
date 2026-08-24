@@ -47,6 +47,9 @@ mediatek build:
   image: *mtk_image
   # No tags: -- run on any available runner.
   before_script:
+    # The Docker executor's checkout is owned by a different UID than the
+    # container runs as, so git refuses to touch it until told it's safe.
+    - git config --global --add safe.directory "${CI_PROJECT_DIR}"
     - git remote add "${MTK_UPSTREAM_REMOTE}" "${MTK_UPSTREAM_URL}" 2>/dev/null || true
     - >
       for ref in ${MTK_UPSTREAM_REFS}; do
