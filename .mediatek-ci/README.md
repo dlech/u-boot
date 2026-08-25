@@ -119,6 +119,33 @@ parallelizing across worktrees. Adopting that here would mean splitting this
 one job into one-per-board, which is a bigger restructure than this project
 has taken on so far; the ~90s checkout cost is accepted for now.
 
+## Batching contiguous commits
+
+A force-push/rebase of `mediatek-staging` invalidates `CI_COMMIT_BEFORE_SHA`
+(see "How the commit set is computed" above), so the *entire* un-upstreamed
+stack has to rebuild -- which can be dozens of commits. Building each one in
+its own buildman invocation (`-c 1`) was the original design, on the
+(mistaken) assumption that a set spanning a merge commit had to be
+all-or-nothing: either the whole set is one gap-free run buildman can batch
+with a single `-c <count>`, or every commit goes one at a time. In practice a
+long-lived integration branch has merge commits scattered through it
+(upstream tag merges, `mediatek-test-support` merges), so the *whole* set
+almost never qualifies as gap-free even though most of it, between those
+merge points, is one straightforward linear run.
+
+`build()` now calls `chunk_contiguous()` to split the commit set into maximal
+gap-free runs first, and batches each run with one buildman call; a run only
+falls back to one-commit-at-a-time if the batch itself fails (to pinpoint the
+exact break) or if it's a genuine singleton (typically a merge commit itself).
+This changes nothing about which commits get built or in what order -- it's
+purely fewer, larger buildman invocations for the same result. Confirmed
+against the real `mediatek-staging` history: a 44-commit rebuild chunked into
+just 2 batches (a 1-commit merge and one 43-commit run), instead of 44
+separate invocations.
+
+The job also carries a `timeout: 2h` as a safety net in case a rebuild is
+still large enough to need it.
+
 ## Running locally
 
 ```sh

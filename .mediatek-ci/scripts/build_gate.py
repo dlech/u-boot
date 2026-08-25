@@ -201,11 +201,8 @@ def run_batch(src, base_sha, count, boards, out_dir, werror, summary_file):
         # otherwise treat as a build failure. Per buildman.rst, defaulting
         # both on for every run is the documented, generally-safe setting.
         # -N (--no-subdirs): without it, buildman nests output under
-        # <out_dir>/<branch-name>/ instead of <out_dir> directly, which would
-        # silently move .bm-work out from under the path .gitlab-ci.yml
-        # caches. Fixed here rather than by pointing the cache at the nested
-        # path, since BUILD_BRANCH is an implementation detail of this
-        # function, not something the CI config should need to know.
+        # <out_dir>/<branch-name>/ instead of <out_dir> directly -- keeps the
+        # output layout predictable regardless of BUILD_BRANCH's name.
         flags = ["-o", out_dir, "-b", BUILD_BRANCH, "-c", str(count), "-M", "-W", "-N", *boards]
         if werror:
             flags.append("-E")
@@ -221,28 +218,55 @@ def run_batch(src, base_sha, count, boards, out_dir, werror, summary_file):
     return ret
 
 
+def chunk_contiguous(src, to_build):
+    """Split `to_build` (oldest-first) into maximal runs, each exactly the
+    gap-free history between its own endpoints -- i.e. each is coverable by
+    one buildman -c <count> batch. A long-lived integration branch like
+    mediatek-staging has merge commits scattered through it (upstream tag
+    merges, mediatek-test-support merges), which break contiguity at those
+    points -- but only there; treating the whole set as all-or-nothing (one
+    batch or 100% one-by-one) throws away a batch-sized speedup for every
+    long contiguous run in between."""
+    chunks = []
+    i = 0
+    n = len(to_build)
+    while i < n:
+        j = i + 1
+        while j < n and is_contiguous(src, to_build[i:j + 1]):
+            j += 1
+        chunks.append(to_build[i:j])
+        i = j
+    return chunks
+
+
 def build(src, to_build, boards, out_dir, werror, summary_file):
     """Build every commit in `to_build` (oldest-first). Stops at the first
     failure; everything before it already built clean."""
     Path(summary_file).write_text("")
 
-    if is_contiguous(src, to_build):
-        ret = run_batch(src, to_build[-1], len(to_build), boards, out_dir, werror, summary_file)
-        if ret == 0:
-            log(f"OK: all {len(to_build)} commit(s) built clean")
-        else:
-            log(f"FAILED (buildman exit {ret}) -- see {summary_file}")
-        return ret
+    done = 0
+    total = len(to_build)
+    for chunk in chunk_contiguous(src, to_build):
+        if len(chunk) > 1:
+            ret = run_batch(src, chunk[-1], len(chunk), boards, out_dir, werror, summary_file)
+            if ret == 0:
+                done += len(chunk)
+                log(f"OK: {len(chunk)} commit(s) built clean "
+                    f"({chunk[0][:12]}..{chunk[-1][:12]}) ({done}/{total})")
+                continue
+            log(f"batch of {len(chunk)} commit(s) failed (buildman exit {ret}) -- "
+                f"retrying one at a time to pinpoint the break")
 
-    # Granular fallback: build one commit at a time so a failure is pinpointed
-    # to the exact breaking commit (also the path for a set that spans a
-    # merge, since that can't be a single contiguous batch).
-    for i, sha in enumerate(to_build, 1):
-        ret = run_batch(src, sha, 1, boards, out_dir, werror, summary_file)
-        if ret != 0:
-            log(f"FAILED at {sha[:12]} ({i}/{len(to_build)}) -- see {summary_file}")
-            return ret
-        log(f"OK: {sha[:12]} built clean ({i}/{len(to_build)})")
+        # Granular: either a genuinely isolated commit (chunk of 1, e.g. a
+        # merge commit), or a batch that just failed above -- build one at a
+        # time so a failure is pinpointed to the exact breaking commit.
+        for sha in chunk:
+            ret = run_batch(src, sha, 1, boards, out_dir, werror, summary_file)
+            if ret != 0:
+                log(f"FAILED at {sha[:12]} ({done + 1}/{total}) -- see {summary_file}")
+                return ret
+            done += 1
+            log(f"OK: {sha[:12]} built clean ({done}/{total})")
     return 0
 
 

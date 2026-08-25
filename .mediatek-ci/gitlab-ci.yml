@@ -46,6 +46,12 @@ mediatek build:
   stage: build
   image: *mtk_image
   # No tags: -- run on any available runner.
+  # A force-push/rebase of mediatek-staging invalidates CI_COMMIT_BEFORE_SHA
+  # (see build_gate.py's resolve_known_good()), so the whole un-upstreamed
+  # stack rebuilds from scratch. build_gate.py batches contiguous runs of
+  # commits together to keep this fast, but a very large stack can still
+  # take a while -- give it more room than the project default.
+  timeout: 2h
   before_script:
     # The Docker executor's checkout is owned by a different UID than the
     # container runs as, so git refuses to touch it until told it's safe.
