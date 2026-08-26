@@ -4,7 +4,10 @@
 GitLab CI build gate for the MediaTek U-Boot custodian tree. Builds every
 commit on `mediatek-staging` that isn't already upstream, so a series can't
 break compilation or `git bisect`. Compile-only for now: no flashing or
-hardware testing yet (that's future work).
+hardware testing yet (that's future work). A manual run can gate
+`mediatek-for-next`/`mediatek-for-main` the same way, without those branches
+carrying any of this -- see "Building a branch other than the pipeline's own
+ref" below.
 
 ## Layout
 
@@ -40,12 +43,13 @@ git rev-list --reverse <target> --not \
 - `mediatek-test-support` is excluded because its own commits only reach
   `mediatek-staging` via a merge commit -- they aren't new MediaTek work and
   shouldn't be built as such.
-- `<known-good-sha>` is added when available: `CI_MERGE_REQUEST_DIFF_BASE_SHA`
-  for an MR pipeline, or `CI_COMMIT_BEFORE_SHA` for an ordinary fast-forward
-  push (verified with `merge-base --is-ancestor` first). This is what avoids
+- `<known-good-sha>` is added when available: `MTK_KNOWN_GOOD` if it was
+  passed by hand, else `CI_MERGE_REQUEST_DIFF_BASE_SHA` for an MR pipeline,
+  else `CI_COMMIT_BEFORE_SHA` for an ordinary fast-forward push (each
+  verified with `merge-base --is-ancestor` first). This is what avoids
   rebuilding commits already verified by a previous pipeline run -- **there
   is no persisted "already built" record**; GitLab's own per-push ref
-  history serves as the record. When neither applies (new branch,
+  history serves as the record. When none applies (new branch,
   force-push, scheduled or manual run), the full "not upstream, not
   test-support" set is built, which is also the correct behavior the very
   first time this CI runs.
@@ -166,6 +170,45 @@ that specific board goes unbuilt for the commit(s) in *this* push that add
 it -- is accepted: from the next push onward the board exists at every
 commit in range and builds normally like any other.
 
+## Building a branch other than the pipeline's own ref
+
+`mediatek-for-next` and `mediatek-for-main` are what gets sent upstream, so
+they carry neither the `MTK TEST:` commits nor this directory -- merging
+`mediatek-test-support` into them just to get CI would put the CI itself in
+the pull request. But GitLab reads a branch pipeline's config from that
+branch's own tree, so a branch without `.mediatek-ci/` can't host a pipeline
+at all.
+
+Setting the `MTK_TARGET_BRANCH` CI/CD variable resolves that: the pipeline
+runs on a ref that *does* have `.mediatek-ci/` and contributes nothing but
+that directory, while everything actually built comes from the target branch.
+The job stashes `.mediatek-ci/` outside the worktree, fetches the target
+branch (same project -- all these branches live in one repo), checks it out
+detached, and runs the stashed `build_gate.py` against it. Buildman, its
+generated board list, and every built commit then come from the target
+branch's tree; nothing is merged and the built tree is byte-identical to what
+goes upstream.
+
+Build > Pipelines > Run pipeline, with:
+
+```
+ref:       mediatek-test-support
+variable:  MTK_TARGET_BRANCH = mediatek-for-next   (or mediatek-for-main)
+```
+
+The standing exclusions need no adjustment for these branches: upstream
+`main`/`next` is the right base for both, and the `mediatek-test-support`
+exclusion is a harmless no-op there because none of its commits are
+reachable.
+
+`CI_COMMIT_BEFORE_SHA`/`CI_MERGE_REQUEST_DIFF_BASE_SHA` describe the
+pipeline's own ref, not the target, so the job unsets them -- which means
+every run rebuilds the branch's whole un-upstreamed stack. That is cheap
+enough in practice: the for-\* branches are linear, so `chunk_contiguous()`
+collapses the entire stack into a single buildman batch. Pass
+`MTK_KNOWN_GOOD=<sha>` as a second variable to skip everything up to a commit
+an earlier run already built clean.
+
 ## Running locally
 
 ```sh
@@ -179,3 +222,14 @@ already the mainline U-Boot repo (as opposed to CI, where a second remote is
 added because `origin` there is the custodian project). See
 `build_gate.py`'s module docstring for the full list of environment
 variables.
+
+`MTK_TARGET_REF` picks the tip to build, so a local checkout can gate another
+branch without checking it out -- the local equivalent of
+`MTK_TARGET_BRANCH` above, except that buildman and its board list come from
+the current worktree rather than from the target:
+
+```sh
+MTK_UPSTREAM_REMOTE=origin \
+MTK_TARGET_REF=mediatek-for-next \
+python3 .mediatek-ci/scripts/build_gate.py
+```

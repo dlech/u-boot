@@ -16,9 +16,10 @@ warnings too), leaving later commits in the set unbuilt.
 There is no persisted "already built" record: the "last verified state"
 above comes entirely from git/GitLab's own ref history (CI_COMMIT_BEFORE_SHA
 for an ordinary fast-forward push, CI_MERGE_REQUEST_DIFF_BASE_SHA for an MR
-pipeline). When neither applies (new branch, force-push, scheduled or manual
-run) the full "not upstream, not test-support" set is built -- which is also
-the correct behavior the very first time this CI runs.
+pipeline), or from MTK_KNOWN_GOOD when it's passed by hand. When none applies
+(new branch, force-push, scheduled or manual run) the full "not upstream, not
+test-support" set is built -- which is also the correct behavior the very
+first time this CI runs.
 
 Configuration is via environment variables:
   UBOOT_SRC               U-Boot tree to build (default: git toplevel of CWD)
@@ -33,6 +34,11 @@ Configuration is via environment variables:
                           origin)
   MTK_TEST_SUPPORT_REF    branch name to exclude (default:
                           mediatek-test-support)
+  MTK_KNOWN_GOOD          a commit already known to build clean, excluded
+                          along with everything it reaches. Manual override
+                          for the GitLab-supplied known-good below, which is
+                          unavailable whenever the tip being built isn't the
+                          ref the pipeline ran on (see MTK_TARGET_REF).
   MTK_BUILDMAN_TERMS      space-separated buildman board-selection terms,
                           passed as bare positional args (matched against
                           each board's target/arch/cpu/board/vendor/soc/
@@ -172,9 +178,22 @@ def resolve_test_support_excludes(src, target):
 
 def resolve_known_good(src):
     """A ref known to already be built, on top of the standing exclusions:
-    the merge-request diff base for an MR pipeline, else the previous branch
-    tip for a true fast-forward push, else None (new branch / force-push /
-    scheduled / manual run -- build the full exclusion-based set)."""
+    an explicit MTK_KNOWN_GOOD, else the merge-request diff base for an MR
+    pipeline, else the previous branch tip for a true fast-forward push, else
+    None (new branch / force-push / scheduled / manual run -- build the full
+    exclusion-based set)."""
+    target = resolve_target(src)
+
+    explicit = os.environ.get("MTK_KNOWN_GOOD", "")
+    if explicit:
+        if not rev_exists(src, explicit):
+            die(f"MTK_KNOWN_GOOD={explicit} is not a commit in this tree")
+        if git(src, "merge-base", "--is-ancestor", explicit, target,
+               check=False).returncode != 0:
+            die(f"MTK_KNOWN_GOOD={explicit} is not an ancestor of {target}")
+        log(f"treating {explicit[:12]} as already built (MTK_KNOWN_GOOD)")
+        return explicit
+
     mr_base = os.environ.get("CI_MERGE_REQUEST_DIFF_BASE_SHA", "")
     if mr_base and set(mr_base) != {"0"} and rev_exists(src, mr_base):
         log(f"merge request: treating {mr_base[:12]} as already built")
@@ -182,7 +201,6 @@ def resolve_known_good(src):
 
     before = os.environ.get("CI_COMMIT_BEFORE_SHA", "")
     if before and set(before) != {"0"} and rev_exists(src, before):
-        target = resolve_target(src)
         if git(src, "merge-base", "--is-ancestor", before, target, check=False).returncode == 0:
             log(f"fast-forward push: treating {before[:12]} as already built")
             return before

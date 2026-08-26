@@ -5,7 +5,8 @@
 # Builds every commit on mediatek-staging that isn't already upstream (and
 # isn't from mediatek-test-support itself, which reaches mediatek-staging
 # only via a merge commit). Compile-only for now -- no flashing/hardware
-# testing yet.
+# testing yet. Set MTK_TARGET_BRANCH in a manual run to gate a different
+# branch (mediatek-for-next, mediatek-for-main) instead -- see below.
 #
 # Deploy: set this project's Settings -> CI/CD -> General pipelines ->
 # "CI/CD configuration file" to .mediatek-ci/gitlab-ci.yml. Kept as
@@ -22,6 +23,17 @@ variables:
   MTK_STAGING_BRANCH:   "mediatek-staging"
   MTK_TEST_SUPPORT_REF: "mediatek-test-support"
   MTK_BUILDMAN_TERMS:   "mediatek mt7628"
+  # Branch to build instead of the pipeline's own ref. Empty (the default)
+  # means "build the ref this pipeline ran on". Set it in a manual "Run
+  # pipeline" to gate a branch that can't host a pipeline of its own --
+  # mediatek-for-next/mediatek-for-main carry nothing but what goes upstream,
+  # so they have no .mediatek-ci/ for GitLab to read a config from. In that
+  # mode the pipeline's own ref supplies only .mediatek-ci/; everything built
+  # comes from the target branch. See .mediatek-ci/README.md.
+  MTK_TARGET_BRANCH:    ""
+  # Where .mediatek-ci/ is stashed before the target-branch checkout below
+  # removes it from the worktree.
+  MTK_CI_DIR:           "/tmp/mtk-ci"
   # Full, unshallow clone: the commit-range computation below needs real
   # history on both sides to find where mediatek-staging actually diverges
   # from upstream main/next, and a too-shallow clone would silently produce
@@ -56,14 +68,32 @@ mediatek build:
     # The Docker executor's checkout is owned by a different UID than the
     # container runs as, so git refuses to touch it until told it's safe.
     - git config --global --add safe.directory "${CI_PROJECT_DIR}"
+    # Stash the CI code outside the worktree: the target-branch checkout below
+    # replaces the worktree with a branch that has no .mediatek-ci/. Done
+    # unconditionally so both modes run the exact same command.
+    - rm -rf "${MTK_CI_DIR}" && cp -a .mediatek-ci "${MTK_CI_DIR}"
     - git remote add "${MTK_UPSTREAM_REMOTE}" "${MTK_UPSTREAM_URL}" 2>/dev/null || true
     - >
       for ref in ${MTK_UPSTREAM_REFS}; do
         git fetch --no-tags "${MTK_UPSTREAM_REMOTE}" "+refs/heads/${ref}:refs/remotes/${MTK_UPSTREAM_REMOTE}/${ref}";
       done
     - git fetch --no-tags origin "+refs/heads/${MTK_TEST_SUPPORT_REF}:refs/remotes/origin/${MTK_TEST_SUPPORT_REF}"
+    # Target-branch mode: build a branch other than the one this pipeline ran
+    # on. Every before_script/script line shares one shell, so the export and
+    # unset below carry through to build_gate.py.
+    - |
+      if [ -n "${MTK_TARGET_BRANCH}" ]; then
+        git fetch --no-tags origin "+refs/heads/${MTK_TARGET_BRANCH}:refs/remotes/origin/${MTK_TARGET_BRANCH}"
+        git checkout --detach "refs/remotes/origin/${MTK_TARGET_BRANCH}"
+        # Without this, build_gate.py's resolve_target() falls back to
+        # CI_COMMIT_SHA, which is the pipeline's own ref, not the target.
+        export MTK_TARGET_REF="refs/remotes/origin/${MTK_TARGET_BRANCH}"
+        # Both describe the pipeline's own ref, so neither says anything about
+        # what has already been built on the target branch.
+        unset CI_COMMIT_BEFORE_SHA CI_MERGE_REQUEST_DIFF_BASE_SHA
+      fi
   script:
-    - python3 .mediatek-ci/scripts/build_gate.py
+    - python3 "${MTK_CI_DIR}/scripts/build_gate.py"
   artifacts:
     when: always
     paths: [ build-summary.txt ]
