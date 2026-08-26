@@ -47,6 +47,7 @@ Configuration is via environment variables:
 """
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -81,6 +82,37 @@ def buildman(src, *args, stream=False):
 
 def rev_exists(src, ref):
     return git(src, "rev-parse", "-q", "--verify", ref, check=False).returncode == 0
+
+
+def resolve_target(src):
+    """The tip being built -- the tree buildman's board list is generated
+    from, since that's what CWD is checked out to."""
+    return os.environ.get("MTK_TARGET_REF") or os.environ.get("CI_COMMIT_SHA", "HEAD")
+
+
+def defconfig_boards_at(src, sha):
+    """Board target names (defconfig basename, minus the _defconfig suffix)
+    that exist under configs/ in the tree at `sha`."""
+    cp = git(src, "ls-tree", "-r", "--name-only", sha, "--", "configs/", check=False)
+    if cp.returncode != 0:
+        return set()
+    return {Path(p).name[: -len("_defconfig")]
+            for p in cp.stdout.split() if p.endswith("_defconfig")}
+
+
+def missing_boards(src, target, oldest_sha):
+    """Board target names whose defconfig exists at `target` -- so
+    buildman's board list, generated once from the checked-out worktree at
+    `target`, includes them -- but not yet at `oldest_sha`, the oldest
+    commit a given buildman invocation is about to build.
+
+    buildman has no per-commit awareness of this: it generates boards.cfg
+    once from CWD and then runs `make <target>_defconfig` for every commit
+    in the range, regardless of whether that commit's tree actually has the
+    file. A commit that predates a board's defconfig being added hits a
+    hard 'No such file or directory' failure, not a graceful skip -- so any
+    such board must be excluded from the buildman call up front instead."""
+    return sorted(defconfig_boards_at(src, target) - defconfig_boards_at(src, oldest_sha))
 
 
 def resolve_upstream_excludes(src):
@@ -150,7 +182,7 @@ def resolve_known_good(src):
 
     before = os.environ.get("CI_COMMIT_BEFORE_SHA", "")
     if before and set(before) != {"0"} and rev_exists(src, before):
-        target = os.environ.get("MTK_TARGET_REF") or os.environ.get("CI_COMMIT_SHA", "HEAD")
+        target = resolve_target(src)
         if git(src, "merge-base", "--is-ancestor", before, target, check=False).returncode == 0:
             log(f"fast-forward push: treating {before[:12]} as already built")
             return before
@@ -161,7 +193,7 @@ def resolve_known_good(src):
 
 def resolve_to_build(src):
     """Oldest-first list of commit SHAs to build."""
-    target = os.environ.get("MTK_TARGET_REF") or os.environ.get("CI_COMMIT_SHA", "HEAD")
+    target = resolve_target(src)
     excludes = resolve_upstream_excludes(src) + resolve_test_support_excludes(src, target)
     known_good = resolve_known_good(src)
     if known_good:
@@ -182,7 +214,7 @@ def is_contiguous(src, shas):
     return cp.stdout.split() == shas
 
 
-def run_batch(src, base_sha, count, boards, out_dir, werror, summary_file):
+def run_batch(src, target, base_sha, oldest_sha, count, boards, out_dir, werror, summary_file):
     """Build `count` commit(s) of real history ending at (and including)
     base_sha, append a human-readable summary, and report the exit status.
 
@@ -190,7 +222,16 @@ def run_batch(src, base_sha, count, boards, out_dir, werror, summary_file):
     <n> walks plain `git log` (not rev-list/first-parent) for n commits back
     from <ref>, so a non-contiguous commit set can't be handed to buildman
     directly -- only ever call this with a SHA + count that really is a
-    contiguous run of history ending there (count=1 always is)."""
+    contiguous run of history ending there (count=1 always is).
+
+    oldest_sha is the oldest commit this call actually builds (base_sha
+    itself for a single commit, chunk[0] for a batch) -- see
+    missing_boards() for why a board whose defconfig doesn't exist there yet
+    must be excluded rather than left to fail."""
+    exclude = missing_boards(src, target, oldest_sha)
+    if exclude:
+        log(f"excluding board(s) not yet present at {oldest_sha[:12]}: {', '.join(exclude)}")
+
     git(src, "branch", "-f", BUILD_BRANCH, base_sha)
     try:
         # -M (--allow-missing): fake out missing external blobs (e.g.
@@ -203,13 +244,21 @@ def run_batch(src, base_sha, count, boards, out_dir, werror, summary_file):
         # -N (--no-subdirs): without it, buildman nests output under
         # <out_dir>/<branch-name>/ instead of <out_dir> directly -- keeps the
         # output layout predictable regardless of BUILD_BRANCH's name.
-        flags = ["-o", out_dir, "-b", BUILD_BRANCH, "-c", str(count), "-M", "-W", "-N", *boards]
+        # -x (--exclude): boards whose defconfig doesn't exist yet at
+        # oldest_sha -- see missing_boards().
+        exclude_flags = []
+        for brd in exclude:
+            exclude_flags += ["-x", f"^{re.escape(brd)}$"]
+
+        flags = ["-o", out_dir, "-b", BUILD_BRANCH, "-c", str(count), "-M", "-W", "-N",
+                  *exclude_flags, *boards]
         if werror:
             flags.append("-E")
         log("running: buildman " + " ".join(flags))
         ret = buildman(src, *flags, stream=True).returncode
 
-        summ = buildman(src, "-o", out_dir, "-b", BUILD_BRANCH, "-c", str(count), "-N", *boards, "-se")
+        summ = buildman(src, "-o", out_dir, "-b", BUILD_BRANCH, "-c", str(count), "-N",
+                         *exclude_flags, *boards, "-se")
         with open(summary_file, "a") as f:
             f.write(summ.stdout)
         sys.stdout.write(summ.stdout)
@@ -239,7 +288,7 @@ def chunk_contiguous(src, to_build):
     return chunks
 
 
-def build(src, to_build, boards, out_dir, werror, summary_file):
+def build(src, target, to_build, boards, out_dir, werror, summary_file):
     """Build every commit in `to_build` (oldest-first). Stops at the first
     failure; everything before it already built clean."""
     Path(summary_file).write_text("")
@@ -248,7 +297,8 @@ def build(src, to_build, boards, out_dir, werror, summary_file):
     total = len(to_build)
     for chunk in chunk_contiguous(src, to_build):
         if len(chunk) > 1:
-            ret = run_batch(src, chunk[-1], len(chunk), boards, out_dir, werror, summary_file)
+            ret = run_batch(src, target, chunk[-1], chunk[0], len(chunk), boards,
+                             out_dir, werror, summary_file)
             if ret == 0:
                 done += len(chunk)
                 log(f"OK: {len(chunk)} commit(s) built clean "
@@ -261,7 +311,7 @@ def build(src, to_build, boards, out_dir, werror, summary_file):
         # merge commit), or a batch that just failed above -- build one at a
         # time so a failure is pinpointed to the exact breaking commit.
         for sha in chunk:
-            ret = run_batch(src, sha, 1, boards, out_dir, werror, summary_file)
+            ret = run_batch(src, target, sha, sha, 1, boards, out_dir, werror, summary_file)
             if ret != 0:
                 log(f"FAILED at {sha[:12]} ({done + 1}/{total}) -- see {summary_file}")
                 return ret
@@ -295,7 +345,7 @@ def main():
     log(f"building {len(to_build)} commit(s), oldest first: "
         f"{to_build[0][:12]}..{to_build[-1][:12]}")
 
-    return build(src, to_build, boards, out_dir, werror, summary_file)
+    return build(src, resolve_target(src), to_build, boards, out_dir, werror, summary_file)
 
 
 if __name__ == "__main__":

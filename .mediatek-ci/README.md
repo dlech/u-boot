@@ -146,6 +146,26 @@ separate invocations.
 The job also carries a `timeout: 2h` as a safety net in case a rebuild is
 still large enough to need it.
 
+## Boards added mid-range
+
+buildman generates its board list (`boards.cfg`) once, from whatever commit
+is checked out in the top-level tree it's invoked from -- not per-commit.
+Since `build_gate.py` always invokes it from the tip being validated, a board
+whose defconfig was added by a commit still in `to_build` is on that list for
+every earlier commit too, even ones that predate the file existing. buildman
+doesn't skip a board it can't find a defconfig for -- it just runs
+`make <target>_defconfig` and that hard-fails ("No such file or directory"),
+breaking the whole invocation for unrelated boards and commits.
+
+`run_batch()` guards against this directly: before each buildman call it
+compares the defconfigs present at the tip against the defconfigs present at
+the oldest commit that call is about to build (`missing_boards()`), and
+passes any board that doesn't exist yet to buildman's `-x`. That board is
+skipped for that invocation rather than crashing it. The gap this leaves --
+that specific board goes unbuilt for the commit(s) in *this* push that add
+it -- is accepted: from the next push onward the board exists at every
+commit in range and builds normally like any other.
+
 ## Running locally
 
 ```sh
