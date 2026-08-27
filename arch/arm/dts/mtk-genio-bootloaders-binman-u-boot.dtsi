@@ -12,6 +12,9 @@
 		fit {
 			description = MTK_BOOTLOADERS_DESCRIPTION;
 			#address-cells = <1>;
+#ifdef CONFIG_SPL_FIT_SIGNATURE
+			fit,sign;
+#endif
 
 			images {
 				uboot {
@@ -90,6 +93,14 @@
 					firmware = "atf";
 					loadables = "uboot", "optee-1";
 					fdt = "uboot-fdt";
+#ifdef CONFIG_SPL_FIT_SIGNATURE
+
+					signature {
+						algo = "sha256,rsa3072";
+						key-name-hint = "bootloaders";
+						sign-images = "firmware", "loadables", "fdt";
+					};
+#endif
 				};
 			};
 		};
