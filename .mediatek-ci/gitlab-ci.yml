@@ -5,7 +5,7 @@
 # Builds every commit on mediatek-staging that isn't already upstream (and
 # isn't from mediatek-test-support itself, which reaches mediatek-staging
 # only via a merge commit). Compile-only for now -- no flashing/hardware
-# testing yet. Set MTK_TARGET_BRANCH in a manual run to gate a different
+# testing yet. Pick a "Target branch" in a manual run to gate a different
 # branch (mediatek-for-next, mediatek-for-main) instead -- see below.
 #
 # Deploy: set this project's Settings -> CI/CD -> General pipelines ->
@@ -16,6 +16,30 @@
 # See .mediatek-ci/README.md for the full design (commit-range computation,
 # board scope, why there's no persisted build-record).
 
+# Pipeline inputs, so Build > Pipelines > Run pipeline offers these as named,
+# self-describing form fields (a dropdown for the branch) instead of variables
+# whose exact names have to be remembered. They only feed the variables below,
+# so setting MTK_TARGET_BRANCH/MTK_KNOWN_GOOD as CI/CD variables by hand still
+# works and still wins -- manual variables override the values set here.
+spec:
+  inputs:
+    target_branch:
+      description: >-
+        Branch to build instead of the ref this pipeline runs on. Leave blank
+        to build the pipeline's own ref (the normal mediatek-staging gate).
+        mediatek-for-next/mediatek-for-main have no .mediatek-ci/ of their own,
+        so they can only be built this way.
+      default: ""
+      options: [ "", "mediatek-for-next", "mediatek-for-main" ]
+    known_good:
+      description: >-
+        Optional commit already known to build clean; it and everything it
+        reaches are skipped. Must be an ancestor of what's being built. Useful
+        with a target branch, where GitLab's own known-good SHAs describe the
+        wrong ref and every run would otherwise rebuild the whole stack.
+      default: ""
+---
+
 variables:
   MTK_UPSTREAM_URL:     "https://git.u-boot-project.org/u-boot/u-boot.git"
   MTK_UPSTREAM_REMOTE:  "mtk-upstream"
@@ -24,13 +48,18 @@ variables:
   MTK_TEST_SUPPORT_REF: "mediatek-test-support"
   MTK_BUILDMAN_TERMS:   "mediatek mt7628"
   # Branch to build instead of the pipeline's own ref. Empty (the default)
-  # means "build the ref this pipeline ran on". Set it in a manual "Run
-  # pipeline" to gate a branch that can't host a pipeline of its own --
-  # mediatek-for-next/mediatek-for-main carry nothing but what goes upstream,
-  # so they have no .mediatek-ci/ for GitLab to read a config from. In that
-  # mode the pipeline's own ref supplies only .mediatek-ci/; everything built
-  # comes from the target branch. See .mediatek-ci/README.md.
-  MTK_TARGET_BRANCH:    ""
+  # means "build the ref this pipeline ran on". Set it via the "Target branch"
+  # input of a manual "Run pipeline" to gate a branch that can't host a
+  # pipeline of its own -- mediatek-for-next/mediatek-for-main carry nothing
+  # but what goes upstream, so they have no .mediatek-ci/ for GitLab to read a
+  # config from. In that mode the pipeline's own ref supplies only
+  # .mediatek-ci/; everything built comes from the target branch. See
+  # .mediatek-ci/README.md.
+  MTK_TARGET_BRANCH:    "$[[ inputs.target_branch ]]"
+  # A commit already built clean, skipped along with its ancestors. Read
+  # directly by build_gate.py; empty means "use GitLab's own known-good SHA,
+  # if this pipeline has a meaningful one".
+  MTK_KNOWN_GOOD:       "$[[ inputs.known_good ]]"
   # Where .mediatek-ci/ is stashed before the target-branch checkout below
   # removes it from the worktree.
   MTK_CI_DIR:           "/tmp/mtk-ci"

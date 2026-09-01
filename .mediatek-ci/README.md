@@ -179,22 +179,27 @@ the pull request. But GitLab reads a branch pipeline's config from that
 branch's own tree, so a branch without `.mediatek-ci/` can't host a pipeline
 at all.
 
-Setting the `MTK_TARGET_BRANCH` CI/CD variable resolves that: the pipeline
-runs on a ref that *does* have `.mediatek-ci/` and contributes nothing but
-that directory, while everything actually built comes from the target branch.
-The job stashes `.mediatek-ci/` outside the worktree, fetches the target
-branch (same project -- all these branches live in one repo), checks it out
-detached, and runs the stashed `build_gate.py` against it. Buildman, its
-generated board list, and every built commit then come from the target
-branch's tree; nothing is merged and the built tree is byte-identical to what
-goes upstream.
+Naming a target branch resolves that: the pipeline runs on a ref that *does*
+have `.mediatek-ci/` and contributes nothing but that directory, while
+everything actually built comes from the target branch. The job stashes
+`.mediatek-ci/` outside the worktree, fetches the target branch (same project
+-- all these branches live in one repo), checks it out detached, and runs the
+stashed `build_gate.py` against it. Buildman, its generated board list, and
+every built commit then come from the target branch's tree; nothing is merged
+and the built tree is byte-identical to what goes upstream.
 
 Build > Pipelines > Run pipeline, with:
 
 ```
-ref:       mediatek-test-support
-variable:  MTK_TARGET_BRANCH = mediatek-for-next   (or mediatek-for-main)
+ref:            mediatek-test-support
+Target branch:  mediatek-for-next   (or mediatek-for-main)
 ```
+
+"Target branch" is a *pipeline input* (`spec:inputs` at the top of
+`gitlab-ci.yml`), so the Run pipeline form offers it by name as a dropdown --
+nothing to remember. It just feeds the `MTK_TARGET_BRANCH` variable, so
+setting that variable by hand still works and still wins, which is what the
+local invocation below and any non-UI trigger use.
 
 The standing exclusions need no adjustment for these branches: upstream
 `main`/`next` is the right base for both, and the `mediatek-test-support`
@@ -205,9 +210,9 @@ reachable.
 pipeline's own ref, not the target, so the job unsets them -- which means
 every run rebuilds the branch's whole un-upstreamed stack. That is cheap
 enough in practice: the for-\* branches are linear, so `chunk_contiguous()`
-collapses the entire stack into a single buildman batch. Pass
-`MTK_KNOWN_GOOD=<sha>` as a second variable to skip everything up to a commit
-an earlier run already built clean.
+collapses the entire stack into a single buildman batch. Fill in the "Known
+good" input (`MTK_KNOWN_GOOD`) to skip everything up to a commit an earlier
+run already built clean.
 
 ## Running locally
 
