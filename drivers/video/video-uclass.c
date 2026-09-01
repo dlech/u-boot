@@ -579,6 +579,7 @@ int video_get_ysize(struct udevice *dev)
 	return priv->ysize;
 }
 
+#if CONFIG_IS_ENABLED(VIDEO_LOGO)
 #define SPLASH_DECL(_name) \
 	extern u8 __splash_ ## _name ## _begin[]; \
 	extern u8 __splash_ ## _name ## _end[]
@@ -598,6 +599,7 @@ static int show_splash(struct udevice *dev)
 
 	return video_bmp_display(dev, map_to_sysmem(data), -4, 4, true);
 }
+#endif
 
 int video_default_font_height(struct udevice *dev)
 {
@@ -716,14 +718,15 @@ static int video_post_probe(struct udevice *dev)
 		return ret;
 	}
 
-	if (CONFIG_IS_ENABLED(VIDEO_LOGO) &&
-	    !CONFIG_IS_ENABLED(SPLASH_SCREEN) && !plat->hide_logo) {
+#if CONFIG_IS_ENABLED(VIDEO_LOGO)
+	if (!CONFIG_IS_ENABLED(SPLASH_SCREEN) && !plat->hide_logo) {
 		ret = show_splash(dev);
 		if (ret) {
 			log_debug("Cannot show splash screen\n");
 			return ret;
 		}
 	}
+#endif
 
 	/* register cyclic as soon as the first video device is probed */
 	if (CONFIG_IS_ENABLED(CYCLIC) && (gd->flags && GD_FLG_RELOC) &&
