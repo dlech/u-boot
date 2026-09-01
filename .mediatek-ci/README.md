@@ -197,11 +197,20 @@ which prints the same commit set the gate builds instead of building it --
 same exclusions, same known-good, so the two jobs can never disagree about
 which commits are "ours". Merge commits are skipped.
 
-Both of these produce far more output than anyone wants scrolling past, so
-each puts its detail in a [GitLab collapsed
+Only errors set checkpatch's exit status. Warnings here are regularly things
+not to act on -- "does MAINTAINERS need updating?" for a deleted
+`*-u-boot.dtsi` an existing glob already covers, say -- and a job that goes
+orange on every such commit stops being read.
+
+Both jobs produce more output than anyone wants scrolling past, so each puts
+its detail in a [GitLab collapsed
 section](https://docs.gitlab.com/ci/jobs/job_logs/#custom-collapsible-sections)
 -- one per commit for checkpatch, one for the whole finding list for
-dtbs_check. Everything is in the job log; neither needs an artifact.
+dtbs_check. checkpatch collapses only the commits it had nothing to say about:
+collapsing the ones that did find something hides the point of the job behind
+a click. The section header carries the counts either way, and the per-board
+summary in dtbs_check prints outside its section. Everything is in the job
+log; neither needs an artifact.
 
 ### dtbs_check
 
@@ -212,6 +221,13 @@ parallel instead of one sequential `make` per board. `make dt_binding_check`
 builds `processed-schema.json` once, `buildman -k` leaves each board's
 `u-boot.dtb` behind (`dts/dt.dtb` is a build-tree intermediate and doesn't
 survive), and one `dt-validate` covers the lot. About four minutes end to end.
+
+The venv this job creates stays active for the build, so it has to satisfy the
+build too: with only `dtschema` in it, kbuild's pylibfdt rebuild dies on
+`No module named 'setuptools'`, because it's the venv's `python3` that runs
+`scripts/dtc/pylibfdt/setup.py`. Hence the tree's own
+`tools/buildman/requirements.txt` and `scripts/dtc/pylibfdt/requirements.txt`
+being installed alongside it.
 
 What the check is for is the `*-u-boot.dtsi` we write on top of a devicetree
 that upstream bindings actually describe. A board with an in-tree devicetree

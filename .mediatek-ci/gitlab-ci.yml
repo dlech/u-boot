@@ -185,6 +185,13 @@ mediatek checkpatch:
     # checkpatch has no meaningful diff to look at for them. Each commit's
     # output goes in its own collapsed section so a long stack doesn't bury
     # the job log -- same reason as dtbs_check below.
+    #
+    # checkpatch exits non-zero for a lone warning, and warnings here are
+    # frequently things not to act on -- "does MAINTAINERS need updating?" on
+    # a deleted *-u-boot.dtsi that an existing glob already covers, say. A job
+    # that goes orange on every such commit stops being read, so only errors
+    # set the exit status. Warnings and checks still show: the counts go in
+    # each section's header, which is the line visible while collapsed.
     - |
       ret=0
       for sha in $(python3 "${MTK_CI_DIR}/scripts/build_gate.py" --list-commits); do
@@ -193,10 +200,24 @@ mediatek checkpatch:
           echo "skipped (merge): ${subject}"
           continue
         fi
-        printf '\033[0Ksection_start:%s:cp_%s[collapsed=true]\r\033[0K%s\n' \
-          "$(date +%s)" "${sha}" "${subject}"
-        ./scripts/checkpatch.pl -g "${sha}" || ret=1
+        out=$(./scripts/checkpatch.pl -g "${sha}" 2>&1) || true
+        totals=$(echo "${out}" | grep -E '^total: [0-9]+ errors,' | tail -1)
+        # Only a commit with nothing to say gets collapsed. Collapsing the
+        # ones that did find something hides the entire point of the job
+        # behind a click.
+        case "${totals}" in
+          'total: 0 errors, 0 warnings, 0 checks'*) collapse='[collapsed=true]' ;;
+          *) collapse= ;;
+        esac
+        printf '\033[0Ksection_start:%s:cp_%s%s\r\033[0K%s -- %s\n' \
+          "$(date +%s)" "${sha}" "${collapse}" "${subject}" "${totals:-NO CHECKPATCH SUMMARY}"
+        echo "${out}"
         printf '\033[0Ksection_end:%s:cp_%s\r\033[0K\n' "$(date +%s)" "${sha}"
+        # An unparseable summary fails too, rather than passing silently.
+        case "${totals}" in
+          'total: 0 errors,'*) ;;
+          *) ret=1 ;;
+        esac
       done
       exit ${ret}
 
@@ -233,9 +254,15 @@ mediatek dtbs_check:
     # built and validates the rest.
     MTK_DTBS_CHECK_EXTRA_BOARDS: "mt8366_genio_360_evk"
   script:
+    # The venv is active for the rest of the job, so it has to satisfy the
+    # build too, not just dt-validate: with only dtschema in it, kbuild's
+    # pylibfdt rebuild dies on "No module named 'setuptools'" (it's the venv's
+    # python3 that runs scripts/dtc/pylibfdt/setup.py, not the system one).
+    # The tree's own requirements files are the list of what that needs.
     - python3 -m venv /tmp/venv-dtschema
     - . /tmp/venv-dtschema/bin/activate
-    - pip install dtschema yamllint
+    - pip install -r tools/buildman/requirements.txt
+        -r scripts/dtc/pylibfdt/requirements.txt dtschema yamllint
     # processed-schema.json is built once, from srctree's bindings, and then
     # reused for every board below. Which defconfig gets used here doesn't
     # matter: dt_binding_check touches no board config, it just needs a
