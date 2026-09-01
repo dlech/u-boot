@@ -3,8 +3,9 @@
 
 GitLab CI build gate for the MediaTek U-Boot custodian tree. Builds every
 commit on `mediatek-staging` that isn't already upstream, so a series can't
-break compilation or `git bisect`. Compile-only for now: no flashing or
-hardware testing yet (that's future work). A manual run can gate
+break compilation or `git bisect`, plus a few whole-tree checks alongside it
+(see "Checks beyond the build"). No flashing or hardware testing yet (that's
+future work). A manual run can gate
 `mediatek-for-next`/`mediatek-for-main` the same way, without those branches
 carrying any of this -- see "Building a branch other than the pipeline's own
 ref" below.
@@ -169,6 +170,85 @@ skipped for that invocation rather than crashing it. The gap this leaves --
 that specific board goes unbuilt for the commit(s) in *this* push that add
 it -- is accepted: from the next push onward the board exists at every
 commit in range and builds normally like any other.
+
+## Checks beyond the build
+
+Three more jobs run in parallel with the build (`needs: []`, so they don't
+wait for it). The point of all of them is that a MediaTek series shouldn't be
+what breaks a check upstream already runs, or arrive with review comments a
+script could have caught.
+
+| job | gates? | what |
+| --- | --- | --- |
+| `mediatek tree checks` | yes | `buildman --maintainer-check` (every defconfig has a MAINTAINERS entry) and upstream's "no `#define CONFIG_*` outside Kconfig" grep |
+| `mediatek checkpatch` | no | `scripts/checkpatch.pl -g` per commit in the gate's commit set |
+| `mediatek dtbs_check` | no | each `OF_UPSTREAM` board's devicetree validated against `dts/upstream/Bindings` |
+
+`mediatek tree checks` gates because both of its checks are clean on our tree
+right now, so a failure can only be something this branch introduced. They
+inspect the tip only -- not every commit -- and neither builds anything, so
+the job needs no upstream fetch (`MTK_FETCH_RANGE_REFS: "0"`) and finishes in
+about a minute.
+
+The other two are `allow_failure: true` and there to be read, not obeyed.
+checkpatch runs `--strict` here (see `.checkpatch.conf`) and not every message
+it raises is worth acting on. It iterates `build_gate.py --list-commits`,
+which prints the same commit set the gate builds instead of building it --
+same exclusions, same known-good, so the two jobs can never disagree about
+which commits are "ours". Merge commits are skipped.
+
+Both of these produce far more output than anyone wants scrolling past, so
+each puts its detail in a [GitLab collapsed
+section](https://docs.gitlab.com/ci/jobs/job_logs/#custom-collapsible-sections)
+-- one per commit for checkpatch, one for the whole finding list for
+dtbs_check. Everything is in the job log; neither needs an artifact.
+
+### dtbs_check
+
+`make dtbs_check` taken apart, for two reasons: the board set stays
+`MTK_BUILDMAN_TERMS` (the same scope as the build gate) rather than a
+hand-kept list that would drift, and buildman builds all of those boards in
+parallel instead of one sequential `make` per board. `make dt_binding_check`
+builds `processed-schema.json` once, `buildman -k` leaves each board's
+`u-boot.dtb` behind (`dts/dt.dtb` is a build-tree intermediate and doesn't
+survive), and one `dt-validate` covers the lot. About four minutes end to end.
+
+What the check is for is the `*-u-boot.dtsi` we write on top of a devicetree
+that upstream bindings actually describe. A board with an in-tree devicetree
+and no bindings has nothing to be validated against, so dt-validate reports
+essentially its whole DT as unrecognised -- that is the difference between 43
+findings and 1480.
+
+So the board set is `CONFIG_OF_UPSTREAM=y` (today `mt7629_rfb`,
+`mt8365_evk`, `mt8370_genio_510_evk`, `mt8390_genio_700_evk` and the two
+`mt8395_genio_1200_evk*`) plus anything named in
+`MTK_DTBS_CHECK_EXTRA_BOARDS`. That variable exists for a board mid-upstream:
+its devicetree is still in-tree, so it isn't `OF_UPSTREAM`, but its bindings
+are already under `dts/upstream/Bindings` -- possibly only because an
+`MTK TEST:` commit on this branch put them there, which is the case where
+checking them against what we ship matters most.
+
+`mt8366_genio_360_evk` is listed there already, ahead of its defconfig: a
+board named before it exists costs one "was not built" warning per run and
+nothing else, and this way the check is live the moment the defconfig lands.
+Skipped boards are likewise named in the job log, so nothing is silently
+dropped either way.
+
+All the boards are still built, because whether a board is `OF_UPSTREAM` is
+only knowable from a configured tree -- the filter reads each board's
+`.config` after the build.
+
+It reports instead of gating for two reasons. `dt-validate` exits 0 no matter
+what it finds, so there is nothing to gate on without a checked-in baseline to
+diff against -- and an exact-line baseline would churn, because the messages
+embed phandle numbers that shift whenever a node moves. And the 43 findings
+that remain are all upstream Linux DT problems rather than anything U-Boot
+added (`mediatek,mt6359` `#sound-dai-cells`, `mt8188-scp-dual` `reg-names`,
+`mt8188-tphy`'s compatible list, `mt8195` jpeg/iommu node names, and 24 on
+`mt7629_rfb`), so a gate would start red.
+
+The per-board counts print uncollapsed for a quick look; the findings
+themselves follow in the collapsed section.
 
 ## Building a branch other than the pipeline's own ref
 

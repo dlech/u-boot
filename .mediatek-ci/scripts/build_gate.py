@@ -13,6 +13,11 @@ One entry point for local runs and GitLab CI. It:
 and exits non-zero as soon as a commit fails to build (with WERROR=1, on
 warnings too), leaving later commits in the set unbuilt.
 
+With --list-commits it stops after step 1 and prints that commit set instead,
+one SHA per line, oldest first. That is what the per-commit checks in
+gitlab-ci.yml (checkpatch) iterate over, so they cover exactly the commits the
+gate builds -- same exclusions, same known-good.
+
 There is no persisted "already built" record: the "last verified state"
 above comes entirely from git/GitLab's own ref history (CI_COMMIT_BEFORE_SHA
 for an ordinary fast-forward push, CI_MERGE_REQUEST_DIFF_BASE_SHA for an MR
@@ -344,10 +349,22 @@ def main():
     # "None + '@'". Default it.
     os.environ.setdefault("USER", "mtk-ci")
 
+    argv = sys.argv[1:]
+    if argv and argv != ["--list-commits"]:
+        die(f"unknown argument(s): {' '.join(argv)} (only --list-commits)")
+
     src = Path(os.environ.get("UBOOT_SRC")
                or git(Path.cwd(), "rev-parse", "--show-toplevel").stdout.strip())
     if not (src / "tools/buildman/buildman").exists():
         die(f"not a U-Boot tree (no tools/buildman/buildman): {src}")
+
+    if argv:
+        # Commit set only, on stdout for a caller to iterate (log() writes to
+        # stderr, so it can't get mixed into the list). Nothing below applies:
+        # no boards, no output dir, no summary.
+        for sha in resolve_to_build(src):
+            print(sha)
+        return 0
 
     boards = os.environ.get("MTK_BUILDMAN_TERMS", "mediatek mt7628").split()
     out_dir = os.environ.get("OUT_DIR", str(Path(os.environ.get("TMPDIR", "/tmp")) / "mtk-build"))
