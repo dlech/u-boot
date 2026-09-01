@@ -595,11 +595,8 @@ void *video_get_u_boot_logo(void)
 static int show_splash(struct udevice *dev)
 {
 	u8 *data = SPLASH_START(u_boot_logo);
-	int ret;
 
-	ret = video_bmp_display(dev, map_to_sysmem(data), -4, 4, true);
-
-	return 0;
+	return video_bmp_display(dev, map_to_sysmem(data), -4, 4, true);
 }
 
 int video_default_font_height(struct udevice *dev)
