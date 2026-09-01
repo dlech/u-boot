@@ -242,7 +242,6 @@ mediatek dtbs_check:
   allow_failure: true
   timeout: 1h
   variables:
-    MTK_FETCH_RANGE_REFS: "0"
     DTBS_OUT: "/tmp/mtk-dtbs"
     # Boards to validate on top of the OF_UPSTREAM ones. This is for a board
     # still being upstreamed: its devicetree is in-tree (so not OF_UPSTREAM)
@@ -254,6 +253,25 @@ mediatek dtbs_check:
     # built and validates the rest.
     MTK_DTBS_CHECK_EXTRA_BOARDS: "mt8366_genio_360_evk"
   script:
+    # Four minutes of building to validate a devicetree nothing in the range
+    # touched is four minutes wasted, so bail out first when the commits being
+    # gated leave the devicetree alone. Bindings count as touching it: a
+    # binding is half of what this job compares, and an MTK TEST: commit that
+    # only patches dts/upstream/Bindings is exactly when the comparison is
+    # worth redoing. Deciding this from the gate's own commit set rather than
+    # a rules:changes: is what makes it work in target-branch mode too, where
+    # the pipeline's ref isn't what's being checked -- so unlike the other
+    # non-building job this one does need the range refs fetched.
+    - |
+      touched=$(for sha in $(python3 "${MTK_CI_DIR}/scripts/build_gate.py" --list-commits); do
+                  git show --pretty=format: --name-only "${sha}"
+                done | grep -E '\.dts[io]?$|^dts/upstream/Bindings/.*\.yaml$' | sort -u)
+      if [ -z "${touched}" ]; then
+        echo "no devicetree or binding changes in the range -- nothing to validate"
+        exit 0
+      fi
+      echo "devicetree/binding files touched in the range:"
+      echo "${touched}" | sed 's/^/  /'
     # The venv is active for the rest of the job, so it has to satisfy the
     # build too, not just dt-validate: with only dtschema in it, kbuild's
     # pylibfdt rebuild dies on "No module named 'setuptools'" (it's the venv's

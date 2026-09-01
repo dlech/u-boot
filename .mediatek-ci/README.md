@@ -182,7 +182,7 @@ script could have caught.
 | --- | --- | --- |
 | `mediatek tree checks` | yes | `buildman --maintainer-check` (every defconfig has a MAINTAINERS entry) and upstream's "no `#define CONFIG_*` outside Kconfig" grep |
 | `mediatek checkpatch` | no | `scripts/checkpatch.pl -g` per commit in the gate's commit set |
-| `mediatek dtbs_check` | no | each `OF_UPSTREAM` board's devicetree validated against `dts/upstream/Bindings` |
+| `mediatek dtbs_check` | no | each `OF_UPSTREAM` board's devicetree validated against `dts/upstream/Bindings`, when the range touches devicetree at all |
 
 `mediatek tree checks` gates because both of its checks are clean on our tree
 right now, so a failure can only be something this branch introduced. They
@@ -213,6 +213,18 @@ summary in dtbs_check prints outside its section. Everything is in the job
 log; neither needs an artifact.
 
 ### dtbs_check
+
+It runs at all only when the commits being gated touch a `.dts`, `.dtsi`,
+`.dtso`, or a binding under `dts/upstream/Bindings` -- otherwise it says so
+and exits before installing or building anything. Bindings count because a
+binding is half of what the job compares, and an `MTK TEST:` commit that
+patches only `dts/upstream/Bindings` is precisely when the comparison is worth
+redoing. That decision comes from the gate's own commit set rather than a
+`rules:changes:`, which is what makes it work in target-branch mode too, where
+the pipeline's ref isn't what's being checked; it's also why this job, unlike
+`mediatek tree checks`, still needs the range refs fetched.
+
+The rest of this section is what happens when it does run.
 
 `make dtbs_check` taken apart, for two reasons: the board set stays
 `MTK_BUILDMAN_TERMS` (the same scope as the build gate) rather than a
