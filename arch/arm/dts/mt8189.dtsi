@@ -8,6 +8,7 @@
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/phy/phy.h>
+#include <dt-bindings/power/mediatek,mt8189-power.h>
 #include <dt-bindings/reset/ti-syscon.h>
 
 / {
@@ -17,6 +18,13 @@
 	#size-cells = <2>;
 
 	aliases {
+		larb0 = &smi_larb0;
+		larb1 = &smi_larb1;
+		mutex0 = &mutex0;
+		ovl0 = &disp_ovl0_4l;
+		ovl1 = &disp_ovl1_4l;
+		rdma0 = &disp_rdma0;
+		rdma1 = &disp_rdma1;
 		serial0 = &uart0;
 	};
 
@@ -143,6 +151,39 @@
 		#size-cells = <2>;
 		compatible = "simple-bus";
 		ranges;
+
+		scpsys: syscon@1c001000 {
+			compatible = "mediatek,mt8189-scpsys", "syscon", "simple-mfd";
+			reg = <0 0x1c001000 0 0x1000>;
+
+			/* System Power Manager */
+			spm: power-controller {
+				compatible = "mediatek,mt8189-power-controller";
+				#address-cells = <1>;
+				#size-cells = <0>;
+				#power-domain-cells = <1>;
+
+				power-domain@MT8189_POWER_DOMAIN_MM_INFRA {
+					reg = <MT8189_POWER_DOMAIN_MM_INFRA>;
+					clocks = <&topckgen_clk CLK_TOP_MMINFRA_SEL>,
+						 <&mminfra_config CLK_MMINFRA_SMI>;
+					clock-names = "mminfra", "mminfra-0";
+					mediatek,infracfg = <&infracfg_ao>;
+					#address-cells = <1>;
+					#size-cells = <0>;
+					#power-domain-cells = <1>;
+
+					power-domain@MT8189_POWER_DOMAIN_DISP {
+						reg = <MT8189_POWER_DOMAIN_DISP>;
+						clocks = <&topckgen_clk CLK_TOP_DISP0_SEL>,
+							 <&dispsys_config CLK_MM_SMI_LARB>;
+						clock-names = "disp", "disp-0";
+						mediatek,infracfg = <&infracfg_ao>;
+						#power-domain-cells = <0>;
+					};
+				};
+			};
+		};
 
 		watchdog: watchdog@1c00a000 {
 			compatible = "mediatek,mt8391-wdt",
@@ -344,6 +385,11 @@
 			status = "disabled";
 		};
 
+		infracfg_ao: syscon@10001000 {
+			compatible = "mediatek,mt8189-infracfg-ao", "syscon";
+			reg = <0 0x10001000 0 0x1000>;
+		};
+
 		clock-controller@1000c000 {
 			compatible = "mediatek,mt8189-apmixedsys", "syscon";
 			reg = <0 0x1000c000 0 0x1000>;
@@ -368,7 +414,7 @@
 			#clock-cells = <1>;
 		};
 
-		clock-controller@1e800000 {
+		mminfra_config: clock-controller@1e800000 {
 			compatible = "mediatek,mt8189-mm-infra", "syscon";
 			reg = <0 0x1e800000 0 0x1000>;
 			#clock-cells = <1>;
@@ -727,6 +773,131 @@
 			compatible = "mediatek,mt8189-vlpckgen", "syscon";
 			reg = <0 0x1c012000 0 0x1000>;
 			#clock-cells = <1>;
+		};
+
+		disp_pwm0: pwm@1100e000 {
+			compatible = "mediatek,mt8189-disp-pwm", "mediatek,mt8183-disp-pwm";
+			reg = <0 0x1100e000 0 0x1000>;
+			interrupts = <GIC_SPI 471 IRQ_TYPE_LEVEL_HIGH 0>;
+			#pwm-cells = <2>;
+			clocks = <&pericfg_ao_clk CLK_PERAO_DISP_PWM0>,
+				 <&topckgen_clk CLK_TOP_DISP_PWM_SEL>;
+			clock-names = "main", "mm";
+			status = "disabled";
+		};
+
+		disp_pwm1: pwm@1100f000 {
+			compatible = "mediatek,mt8189-disp-pwm", "mediatek,mt8183-disp-pwm";
+			reg = <0 0x1100f000 0 0x1000>;
+			interrupts = <GIC_SPI 470 IRQ_TYPE_LEVEL_HIGH 0>;
+			#pwm-cells = <2>;
+			clocks = <&pericfg_ao_clk CLK_PERAO_DISP_PWM1>,
+				 <&topckgen_clk CLK_TOP_DISP_PWM_SEL>;
+			clock-names = "main", "mm";
+			status = "disabled";
+		};
+
+		mipi_tx_config0: dsi-phy@11b40000 {
+			compatible = "mediatek,mt8189-mipi-tx", "mediatek,mt8183-mipi-tx";
+			reg = <0 0x11b40000 0 0x1000>;
+			clocks = <&clk26m>;
+			#clock-cells = <0>;
+			#phy-cells = <0>;
+			clock-output-names = "mipi_tx0_pll";
+			status = "disabled";
+		};
+
+		mutex0: mutex@14001000 {
+			compatible = "mediatek,mt8189-disp-mutex";
+			reg = <0 0x14001000 0 0x1000>;
+			interrupts = <GIC_SPI 332 IRQ_TYPE_LEVEL_HIGH 0>;
+			power-domains = <&spm MT8189_POWER_DOMAIN_DISP>;
+			clocks = <&dispsys_config CLK_MM_DISP_MUTEX0>;
+			status = "disabled";
+		};
+
+		disp_ovl0_4l: ovl@14002000 {
+			compatible = "mediatek,mt8189-disp-ovl";
+			reg = <0 0x14002000 0 0x1000>;
+			interrupts = <GIC_SPI 302 IRQ_TYPE_LEVEL_HIGH 0>;
+			power-domains = <&spm MT8189_POWER_DOMAIN_DISP>;
+			clocks = <&dispsys_config CLK_MM_DISP_OVL0_4L>;
+			status = "disabled";
+		};
+
+		disp_ovl1_4l: ovl@14003000 {
+			compatible = "mediatek,mt8189-disp-ovl";
+			reg = <0 0x14003000 0 0x1000>;
+			interrupts = <GIC_SPI 304 IRQ_TYPE_LEVEL_HIGH 0>;
+			power-domains = <&spm MT8189_POWER_DOMAIN_DISP>;
+			clocks = <&dispsys_config CLK_MM_DISP_OVL1_4L>;
+			status = "disabled";
+		};
+
+		disp_rdma0: rdma@14006000 {
+			compatible = "mediatek,mt8189-disp-rdma", "mediatek,mt8195-disp-rdma";
+			reg = <0 0x14006000 0 0x1000>;
+			interrupts = <GIC_SPI 308 IRQ_TYPE_LEVEL_HIGH 0>;
+			power-domains = <&spm MT8189_POWER_DOMAIN_DISP>;
+			clocks = <&dispsys_config CLK_MM_DISP_RDMA0>;
+			status = "disabled";
+		};
+
+		disp_rdma1: rdma@14007000 {
+			compatible = "mediatek,mt8189-disp-rdma", "mediatek,mt8195-disp-rdma";
+			reg = <0 0x14007000 0 0x1000>;
+			interrupts = <GIC_SPI 309 IRQ_TYPE_LEVEL_HIGH 0>;
+			power-domains = <&spm MT8189_POWER_DOMAIN_DISP>;
+			clocks = <&dispsys_config CLK_MM_DISP_RDMA1>;
+			status = "disabled";
+		};
+
+		dsi0: dsi@14016000 {
+			compatible = "mediatek,mt8188-dsi";
+			reg = <0 0x14016000 0 0x1000>;
+			interrupts = <GIC_SPI 326 IRQ_TYPE_LEVEL_HIGH 0>;
+			power-domains = <&spm MT8189_POWER_DOMAIN_DISP>;
+			phys = <&mipi_tx_config0>;
+			phy-names = "dphy";
+			clocks = <&dispsys_config CLK_MMSYS_0_DISP_DSI0>,
+				 <&dispsys_config CLK_MMSYS_1_DISP_DSI0>,
+				 <&mipi_tx_config0>;
+			clock-names = "engine", "digital", "hs";
+			status = "disabled";
+		};
+
+		smi_larb0: larb@1401c000 {
+			compatible = "mediatek,mt8189-smi-larb";
+			reg = <0 0x1401c000 0 0x1000>;
+			clocks = <&dispsys_config CLK_MM_SMI_LARB>,
+				 <&dispsys_config CLK_MM_SMI_LARB>;
+			clock-names = "apb", "smi";
+			power-domains = <&spm MT8189_POWER_DOMAIN_DISP>;
+			mediatek,larb-id = <0>;
+			mediatek,smi = <&smi_disp_common>;
+			status = "disabled";
+		};
+
+		smi_larb1: larb@1401d000 {
+			compatible = "mediatek,mt8189-smi-larb";
+			reg = <0 0x1401d000 0 0x1000>;
+			clocks = <&dispsys_config CLK_MM_SMI_LARB>,
+				 <&dispsys_config CLK_MM_SMI_LARB>;
+			clock-names = "apb", "smi";
+			power-domains = <&spm MT8189_POWER_DOMAIN_DISP>;
+			mediatek,larb-id = <1>;
+			mediatek,smi = <&smi_disp_common>;
+			status = "disabled";
+		};
+
+		smi_disp_common: smi@1e801000 {
+			compatible = "mediatek,mt8189-smi-common";
+			reg = <0 0x1e801000 0 0x1000>;
+			clocks = <&mminfra_config CLK_MMINFRA_SMI>,
+				 <&mminfra_config CLK_MMINFRA_SMI>;
+			clock-names = "apb", "smi";
+			power-domains = <&spm MT8189_POWER_DOMAIN_MM_INFRA>;
+			status = "disabled";
 		};
 	};
 };
