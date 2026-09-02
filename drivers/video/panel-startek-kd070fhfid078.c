@@ -25,6 +25,7 @@ struct stk078_panel {
 	struct mipi_dsi_device *dsi;
 	struct udevice *iovcc;
 	struct udevice *vdd;
+	struct udevice *vddp;
 	struct udevice *backlight;
 };
 
@@ -147,18 +148,33 @@ static int stk078_panel_enable_backlight(struct udevice *dev)
 	dm_gpio_set_value(stk->reset_gpio, 0);
 	if (stk->enable_gpio)
 		dm_gpio_set_value(stk->enable_gpio, 0);
-	mdelay(10);
+	mdelay(1);
 
-	ret = regulator_enable(stk->vdd);
-	if (ret < 0) {
-		dev_err(dev, "enable vdd failed: %d\n", ret);
-		goto out_gpio;
+	/*
+	 * VDDP and IOVCC come up together, then VDD once they have settled.
+	 * Boards that switch VDD and IOVCC from a single regulator simply see
+	 * the second regulator_enable() as a reference count.
+	 */
+	if (stk->vddp) {
+		ret = regulator_enable(stk->vddp);
+		if (ret < 0) {
+			dev_err(dev, "enable vddp failed: %d\n", ret);
+			goto out_gpio;
+		}
 	}
 
 	ret = regulator_enable(stk->iovcc);
 	if (ret < 0) {
 		dev_err(dev, "enable iovcc failed: %d\n", ret);
-		goto out_vdd;
+		goto out_vddp;
+	}
+
+	mdelay(10);
+
+	ret = regulator_enable(stk->vdd);
+	if (ret < 0) {
+		dev_err(dev, "enable vdd failed: %d\n", ret);
+		goto out_iovcc;
 	}
 
 	mdelay(15);
@@ -166,7 +182,7 @@ static int stk078_panel_enable_backlight(struct udevice *dev)
 		dm_gpio_set_value(stk->enable_gpio, 1);
 	mdelay(10);
 	dm_gpio_set_value(stk->reset_gpio, 1);
-	mdelay(140);
+	mdelay(10);
 
 	ret = stk078_panel_init(stk);
 	if (ret < 0) {
@@ -183,9 +199,12 @@ static int stk078_panel_enable_backlight(struct udevice *dev)
 	return 0;
 
 out_power:
-	regulator_disable(stk->iovcc);
-out_vdd:
 	regulator_disable(stk->vdd);
+out_iovcc:
+	regulator_disable(stk->iovcc);
+out_vddp:
+	if (stk->vddp)
+		regulator_disable(stk->vddp);
 out_gpio:
 	dm_gpio_set_value(stk->reset_gpio, 0);
 	if (stk->enable_gpio)
@@ -208,6 +227,18 @@ static int stk078_panel_add(struct udevice *dev)
 	ret = device_get_supply_regulator(dev, "vdd-supply", &stk->vdd);
 	if (ret) {
 		dev_err(dev, "Failed to get vdd regulator: %d\n", ret);
+		return ret;
+	}
+
+	/*
+	 * Boards that gate the panel's VDDP rail separately from VDD describe
+	 * it with an extra vddp-supply. Most wire VDDP to VDD and omit it.
+	 */
+	ret = device_get_supply_regulator(dev, "vddp-supply", &stk->vddp);
+	if (ret == -ENOENT) {
+		stk->vddp = NULL;
+	} else if (ret) {
+		dev_err(dev, "Failed to get vddp regulator: %d\n", ret);
 		return ret;
 	}
 
