@@ -14,3 +14,18 @@ obj-$(CONFIG_VIDEO_MEDIATEK_HDMI) += \
 	mtk_hdmi.o \
 	mtk_mdp_rdma.o \
 	mtk_smi_larb.o
+
+obj-$(CONFIG_VIDEO_MEDIATEK_DSI) += \
+	mtk_ddp.o \
+	mtk_disp_aal.o \
+	mtk_disp_ccorr.o \
+	mtk_disp_color.o \
+	mtk_disp_dither.o \
+	mtk_disp_gamma.o \
+	mtk_disp_mutex_mt8365.o \
+	mtk_disp_ovl.o \
+	mtk_disp_rdma.o \
+	mtk_dsi.o \
+	mtk_dsi_host.o \
+	mtk_mipi_tx.o \
+	mtk_smi.o

@@ -19,3 +19,16 @@ config VIDEO_MEDIATEK_HDMI
 	  connected display, selects its preferred mode and drives the
 	  vdosys1 display pipeline (MDP RDMA, padding, merge, ETHDR
 	  mixer, DPI) to scan out the U-Boot framebuffer over HDMI.
+
+config VIDEO_MEDIATEK_DSI
+	bool "DSI video path for MediaTek SoCs"
+	depends on VIDEO && ARCH_MEDIATEK
+	select DISPLAY
+	select MISC
+	select VIDEO_MIPI_DSI
+	help
+	  Enable support for the MIPI-DSI display path found on MediaTek
+	  SoCs such as the MT8365 and MT8366. The driver drives the vdosys0
+	  display pipeline (OVL, RDMA, color, ccorr, AAL, gamma, dither,
+	  DSI and MIPI TX PHY) to scan out the U-Boot framebuffer to a DSI
+	  panel.
