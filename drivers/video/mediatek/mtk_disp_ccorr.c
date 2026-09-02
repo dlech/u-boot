@@ -75,8 +75,8 @@ static int mtk_disp_ccorr_probe(struct udevice *dev)
 	ccorr->dev = dev;
 
 	ccorr->base = dev_remap_addr(dev);
-	if (IS_ERR(ccorr->base))
-		return PTR_ERR(ccorr->base);
+	if (!ccorr->base)
+		return -EINVAL;
 
 	ret = clk_get_by_index(dev, 0, &ccorr->clk);
 	if (ret)

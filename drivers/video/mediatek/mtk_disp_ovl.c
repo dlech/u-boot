@@ -226,8 +226,8 @@ static int mtk_disp_ovl_probe(struct udevice *dev)
 	ovl->data = (const struct mtk_disp_ovl_data *)dev_get_driver_data(dev);
 
 	ovl->base = dev_remap_addr(dev);
-	if (IS_ERR(ovl->base))
-		return PTR_ERR(ovl->base);
+	if (!ovl->base)
+		return -EINVAL;
 
 	ret = clk_get_by_index(dev, 0, &ovl->clk);
 	if (ret)

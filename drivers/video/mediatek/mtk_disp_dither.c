@@ -75,8 +75,8 @@ static int mtk_disp_dither_probe(struct udevice *dev)
 	dither->dev = dev;
 
 	dither->base = dev_remap_addr(dev);
-	if (IS_ERR(dither->base))
-		return PTR_ERR(dither->base);
+	if (!dither->base)
+		return -EINVAL;
 
 	ret = clk_get_by_index(dev, 0, &dither->clk);
 	if (ret)

@@ -79,8 +79,8 @@ static int mtk_disp_aal_probe(struct udevice *dev)
 	aal->dev = dev;
 
 	aal->base = dev_remap_addr(dev);
-	if (IS_ERR(aal->base))
-		return PTR_ERR(aal->base);
+	if (!aal->base)
+		return -EINVAL;
 
 	ret = clk_get_by_index(dev, 0, &aal->clk);
 	if (ret)

@@ -205,8 +205,8 @@ static int mtk_disp_rdma_probe(struct udevice *dev)
 		return -EINVAL;
 
 	rdma->base = dev_remap_addr(dev);
-	if (IS_ERR(rdma->base))
-		return PTR_ERR(rdma->base);
+	if (!rdma->base)
+		return -EINVAL;
 
 	ret = clk_get_by_index(dev, 0, &rdma->clk);
 	if (ret)

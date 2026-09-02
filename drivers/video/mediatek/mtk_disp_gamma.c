@@ -71,8 +71,8 @@ static int mtk_disp_gamma_probe(struct udevice *dev)
 	gamma->dev = dev;
 
 	gamma->base = dev_remap_addr(dev);
-	if (IS_ERR(gamma->base))
-		return PTR_ERR(gamma->base);
+	if (!gamma->base)
+		return -EINVAL;
 
 	ret = clk_get_by_index(dev, 0, &gamma->clk);
 	if (ret)

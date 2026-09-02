@@ -249,8 +249,8 @@ static int mtk_smi_larb_probe(struct udevice *dev)
 	larb->data = (const struct mtk_smi_larb_data *)dev_get_driver_data(dev);
 
 	larb->base = dev_remap_addr(dev);
-	if (IS_ERR(larb->base))
-		return PTR_ERR(larb->base);
+	if (!larb->base)
+		return -EINVAL;
 
 	ret = clk_get_by_index(dev, 0, &larb->clk);
 	if (ret)

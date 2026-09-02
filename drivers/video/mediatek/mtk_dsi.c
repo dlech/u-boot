@@ -656,8 +656,8 @@ static int mtk_dsi_probe(struct udevice *dev)
 	}
 
 	dsi->base = dev_remap_addr(dev);
-	if (IS_ERR(dsi->base))
-		return PTR_ERR(dsi->base);
+	if (!dsi->base)
+		return -EINVAL;
 
 	dsi->engine_clk = devm_clk_get(dev, "engine");
 	if (IS_ERR(dsi->engine_clk))

@@ -245,8 +245,8 @@ static int mtk_dsi_host_probe(struct udevice *dev)
 	dsi->dev = dev;
 
 	dsi->base = dev_remap_addr(dev);
-	if (IS_ERR(dsi->base))
-		return PTR_ERR(dsi->base);
+	if (!dsi->base)
+		return -EINVAL;
 
 	dsi->cmdq_off = dev_get_driver_data(dev);
 

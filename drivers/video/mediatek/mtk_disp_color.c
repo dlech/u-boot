@@ -76,8 +76,8 @@ static int mtk_disp_color_probe(struct udevice *dev)
 	color->dev = dev;
 
 	color->base = dev_remap_addr(dev);
-	if (IS_ERR(color->base))
-		return PTR_ERR(color->base);
+	if (!color->base)
+		return -EINVAL;
 
 	ret = clk_get_by_index(dev, 0, &color->clk);
 	if (ret)

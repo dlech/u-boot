@@ -199,8 +199,8 @@ static int mtk_mipi_tx_probe(struct udevice *dev)
 	mipi_tx->dev = dev;
 
 	mipi_tx->base = dev_remap_addr(dev);
-	if (IS_ERR(mipi_tx->base))
-		return PTR_ERR(mipi_tx->base);
+	if (!mipi_tx->base)
+		return -EINVAL;
 
 	//printf("--------> %s %i\n", __func__, __LINE__);
 	//mipi_tx->pll_clk = devm_clk_get(dev, "pll");
