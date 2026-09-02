@@ -29,6 +29,7 @@ properties:
           - mediatek,mt8188-smi-larb
           - mediatek,mt8192-smi-larb
           - mediatek,mt8195-smi-larb
+          - mediatek,mt8366-smi-larb
 
       - description: for mt7623
         items:

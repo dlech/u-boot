@@ -1,0 +1,339 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# MediaTek U-Boot CI: build gate.
+#
+# Builds every commit on mediatek-staging that isn't already upstream (and
+# isn't from mediatek-test-support itself, which reaches mediatek-staging
+# only via a merge commit). Compile-only for now -- no flashing/hardware
+# testing yet. Pick a "Target branch" in a manual run to gate a different
+# branch (mediatek-for-next, mediatek-for-main) instead -- see below.
+#
+# Alongside the build: MAINTAINERS coverage and the no-CONFIG-outside-Kconfig
+# grep (gating), plus checkpatch and dtbs_check (advisory).
+#
+# Deploy: set this project's Settings -> CI/CD -> General pipelines ->
+# "CI/CD configuration file" to .mediatek-ci/gitlab-ci.yml. Kept as
+# a separate file (not a change to .gitlab-ci.yml) so it can never clobber
+# upstream's own CI config and survives rebases cleanly.
+#
+# See .mediatek-ci/README.md for the full design (commit-range computation,
+# board scope, why there's no persisted build-record).
+
+# Pipeline inputs, so Build > Pipelines > Run pipeline offers these as named,
+# self-describing form fields (a dropdown for the branch) instead of variables
+# whose exact names have to be remembered. They only feed the variables below,
+# so setting MTK_TARGET_BRANCH/MTK_KNOWN_GOOD as CI/CD variables by hand still
+# works and still wins -- manual variables override the values set here.
+spec:
+  inputs:
+    target_branch:
+      description: >-
+        Branch to build instead of the ref this pipeline runs on. Leave blank
+        to build the pipeline's own ref (the normal mediatek-staging gate).
+        mediatek-for-next/mediatek-for-main have no .mediatek-ci/ of their own,
+        so they can only be built this way.
+      default: ""
+      options: [ "", "mediatek-for-next", "mediatek-for-main" ]
+    known_good:
+      description: >-
+        Optional commit already known to build clean; it and everything it
+        reaches are skipped. Must be an ancestor of what's being built. Useful
+        with a target branch, where GitLab's own known-good SHAs describe the
+        wrong ref and every run would otherwise rebuild the whole stack.
+      default: ""
+---
+
+variables:
+  MTK_UPSTREAM_URL:     "https://git.u-boot-project.org/u-boot/u-boot.git"
+  MTK_UPSTREAM_REMOTE:  "mtk-upstream"
+  MTK_UPSTREAM_REFS:    "main next"
+  MTK_STAGING_BRANCH:   "mediatek-staging"
+  MTK_TEST_SUPPORT_REF: "mediatek-test-support"
+  MTK_BUILDMAN_TERMS:   "mediatek mt7628"
+  # Branch to build instead of the pipeline's own ref. Empty (the default)
+  # means "build the ref this pipeline ran on". Set it via the "Target branch"
+  # input of a manual "Run pipeline" to gate a branch that can't host a
+  # pipeline of its own -- mediatek-for-next/mediatek-for-main carry nothing
+  # but what goes upstream, so they have no .mediatek-ci/ for GitLab to read a
+  # config from. In that mode the pipeline's own ref supplies only
+  # .mediatek-ci/; everything built comes from the target branch. See
+  # .mediatek-ci/README.md.
+  MTK_TARGET_BRANCH:    "$[[ inputs.target_branch ]]"
+  # A commit already built clean, skipped along with its ancestors. Read
+  # directly by build_gate.py; empty means "use GitLab's own known-good SHA,
+  # if this pipeline has a meaningful one".
+  MTK_KNOWN_GOOD:       "$[[ inputs.known_good ]]"
+  # Where .mediatek-ci/ is stashed before the target-branch checkout below
+  # removes it from the worktree.
+  MTK_CI_DIR:           "/tmp/mtk-ci"
+  # Full, unshallow clone: the commit-range computation below needs real
+  # history on both sides to find where mediatek-staging actually diverges
+  # from upstream main/next, and a too-shallow clone would silently produce
+  # a *wrong* set rather than erroring. Revisit once a safe minimum depth is
+  # confirmed.
+  GIT_DEPTH:             "0"
+  WERROR:                "0"
+  # Fetch upstream main/next and mediatek-test-support. Only the commit-range
+  # computation needs them, so jobs that just inspect the checked-out tree set
+  # this to 0 and skip a full fetch of u-boot.git.
+  MTK_FETCH_RANGE_REFS:  "1"
+  # buildman/patman read $USER (patchstream compares commit authors to
+  # "$USER@") and CI containers often leave it unset, which crashes with
+  # "None + '@'".
+  USER:                  "mtk-ci"
+
+stages: [ build, check ]
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH == $MTK_STAGING_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+
+# The pinned U-Boot CI runner image (cross-toolchains + buildman). Bump deliberately.
+.mtk_image: &mtk_image trini/u-boot-gitlab-ci-runner:noble-20251013-23Jan2026
+
+# Shared setup: everything every job needs before it can look at the tree.
+# One before_script for all of them so target-branch mode can never apply to
+# some jobs and not others.
+.mtk_setup:
+  image: *mtk_image
+  # No tags: -- run on any available runner.
+  before_script:
+    # The Docker executor's checkout is owned by a different UID than the
+    # container runs as, so git refuses to touch it until told it's safe.
+    - git config --global --add safe.directory "${CI_PROJECT_DIR}"
+    # Stash the CI code outside the worktree: the target-branch checkout below
+    # replaces the worktree with a branch that has no .mediatek-ci/. Done
+    # unconditionally so both modes run the exact same command.
+    - rm -rf "${MTK_CI_DIR}" && cp -a .mediatek-ci "${MTK_CI_DIR}"
+    # Only the commit-range computation needs these, and fetching upstream
+    # u-boot.git in full is by far the slowest part of this setup.
+    - |
+      if [ "${MTK_FETCH_RANGE_REFS}" = "1" ]; then
+        git remote add "${MTK_UPSTREAM_REMOTE}" "${MTK_UPSTREAM_URL}" 2>/dev/null || true
+        for ref in ${MTK_UPSTREAM_REFS}; do
+          git fetch --no-tags "${MTK_UPSTREAM_REMOTE}" "+refs/heads/${ref}:refs/remotes/${MTK_UPSTREAM_REMOTE}/${ref}"
+        done
+        git fetch --no-tags origin "+refs/heads/${MTK_TEST_SUPPORT_REF}:refs/remotes/origin/${MTK_TEST_SUPPORT_REF}"
+      fi
+    # Target-branch mode: build a branch other than the one this pipeline ran
+    # on. Every before_script/script line shares one shell, so the export and
+    # unset below carry through to build_gate.py.
+    - |
+      if [ -n "${MTK_TARGET_BRANCH}" ]; then
+        git fetch --no-tags origin "+refs/heads/${MTK_TARGET_BRANCH}:refs/remotes/origin/${MTK_TARGET_BRANCH}"
+        git checkout --detach "refs/remotes/origin/${MTK_TARGET_BRANCH}"
+        # Without this, build_gate.py's resolve_target() falls back to
+        # CI_COMMIT_SHA, which is the pipeline's own ref, not the target.
+        export MTK_TARGET_REF="refs/remotes/origin/${MTK_TARGET_BRANCH}"
+        # Both describe the pipeline's own ref, so neither says anything about
+        # what has already been built on the target branch.
+        unset CI_COMMIT_BEFORE_SHA CI_MERGE_REQUEST_DIFF_BASE_SHA
+      fi
+
+mediatek build:
+  extends: .mtk_setup
+  stage: build
+  # A force-push/rebase of mediatek-staging invalidates CI_COMMIT_BEFORE_SHA
+  # (see build_gate.py's resolve_known_good()), so the whole un-upstreamed
+  # stack rebuilds from scratch. build_gate.py batches contiguous runs of
+  # commits together to keep this fast, but a very large stack can still
+  # take a while -- give it more room than the project default.
+  timeout: 2h
+  script:
+    - python3 "${MTK_CI_DIR}/scripts/build_gate.py"
+  artifacts:
+    when: always
+    paths: [ build-summary.txt ]
+    expire_in: 1 week
+
+# Whole-tree checks that upstream's own CI runs on every push, reproduced here
+# so a MediaTek series can't be the thing that breaks them upstream. Both are
+# tree-state checks on the tip, not per-commit, and both are clean on our tree
+# today -- so any failure is something this branch introduced. needs: [] to
+# start immediately rather than waiting for the build stage.
+mediatek tree checks:
+  extends: .mtk_setup
+  stage: check
+  needs: []
+  variables:
+    MTK_FETCH_RANGE_REFS: "0"
+  script:
+    # Every defconfig must be covered by a MAINTAINERS entry -- exits 2 with
+    # "WARNING: no maintainers for '<board>'" otherwise.
+    - ./tools/buildman/buildman --maintainer-check
+    # New CONFIG symbols have to go through Kconfig. Copied from upstream's
+    # "check for new CONFIG symbols outside Kconfig" job, exclusions and all:
+    # grep *succeeding* is the failure, since there should be no matches.
+    - git grep -E '^#[[:blank:]]*(define|undef)[[:blank:]]*CONFIG_'
+        :^doc/ :^arch/arm/dts/ :^scripts/kconfig/lkc.h
+        :^include/linux/kconfig.h :^tools/ :^dts/upstream/
+        :^lib/mbedtls/external :^lib/mbedtls/mbedtls_def_config.h &&
+        exit 1 || exit 0
+
+# Advisory: checkpatch is --strict here (see .checkpatch.conf), and not every
+# warning it raises is worth acting on, so this reports rather than gates.
+mediatek checkpatch:
+  extends: .mtk_setup
+  stage: check
+  needs: []
+  allow_failure: true
+  script:
+    # The same commit set the build gate builds. Merge commits are skipped:
+    # checkpatch has no meaningful diff to look at for them. Each commit's
+    # output goes in its own collapsed section so a long stack doesn't bury
+    # the job log -- same reason as dtbs_check below.
+    #
+    # checkpatch exits non-zero for a lone warning, and warnings here are
+    # frequently things not to act on -- "does MAINTAINERS need updating?" on
+    # a deleted *-u-boot.dtsi that an existing glob already covers, say. A job
+    # that goes orange on every such commit stops being read, so only errors
+    # set the exit status. Warnings and checks still show: the counts go in
+    # each section's header, which is the line visible while collapsed.
+    - |
+      ret=0
+      for sha in $(python3 "${MTK_CI_DIR}/scripts/build_gate.py" --list-commits); do
+        subject=$(git log -1 --oneline "${sha}")
+        if [ "$(git log -1 --format=%P "${sha}" | wc -w)" -gt 1 ]; then
+          echo "skipped (merge): ${subject}"
+          continue
+        fi
+        out=$(./scripts/checkpatch.pl -g "${sha}" 2>&1) || true
+        totals=$(echo "${out}" | grep -E '^total: [0-9]+ errors,' | tail -1)
+        # Only a commit with nothing to say gets collapsed. Collapsing the
+        # ones that did find something hides the entire point of the job
+        # behind a click.
+        case "${totals}" in
+          'total: 0 errors, 0 warnings, 0 checks'*) collapse='[collapsed=true]' ;;
+          *) collapse= ;;
+        esac
+        printf '\033[0Ksection_start:%s:cp_%s%s\r\033[0K%s -- %s\n' \
+          "$(date +%s)" "${sha}" "${collapse}" "${subject}" "${totals:-NO CHECKPATCH SUMMARY}"
+        echo "${out}"
+        printf '\033[0Ksection_end:%s:cp_%s\r\033[0K\n' "$(date +%s)" "${sha}"
+        # An unparseable summary fails too, rather than passing silently.
+        case "${totals}" in
+          'total: 0 errors,'*) ;;
+          *) ret=1 ;;
+        esac
+      done
+      exit ${ret}
+
+# Report-only: validate every in-scope board's devicetree against the upstream
+# bindings in dts/upstream/Bindings, and publish the result as an artifact.
+# This is `make dtbs_check` decomposed, so that the board set stays
+# MTK_BUILDMAN_TERMS -- the same scope as the build gate -- rather than a
+# hand-kept list, and so the boards build in parallel under buildman instead
+# of one sequential make per board.
+#
+# The point is the *-u-boot.dtsi additions we make on top of an upstream DT,
+# so only OF_UPSTREAM boards are checked -- see the filter in the script.
+#
+# It reports rather than gates: even so narrowed there are 43 standing
+# findings, all of them upstream Linux DT issues rather than anything U-Boot
+# added. dt-validate also exits 0 regardless of what it finds, so there would
+# be nothing to gate on without a checked-in baseline to diff against.
+mediatek dtbs_check:
+  extends: .mtk_setup
+  stage: check
+  needs: []
+  allow_failure: true
+  timeout: 1h
+  variables:
+    DTBS_OUT: "/tmp/mtk-dtbs"
+    # Boards to validate on top of the OF_UPSTREAM ones. This is for a board
+    # still being upstreamed: its devicetree is in-tree (so not OF_UPSTREAM)
+    # while its bindings are already in dts/upstream/Bindings, possibly only
+    # because an MTK TEST: commit on this branch put them there -- which is
+    # exactly the mt8366 situation, and exactly the case where the bindings
+    # most need checking against what we're actually shipping. Listing a board
+    # before its defconfig exists is harmless: the job warns that it wasn't
+    # built and validates the rest.
+    MTK_DTBS_CHECK_EXTRA_BOARDS: "mt8366_genio_360_evk"
+  script:
+    # Four minutes of building to validate a devicetree nothing in the range
+    # touched is four minutes wasted, so bail out first when the commits being
+    # gated leave the devicetree alone. Bindings count as touching it: a
+    # binding is half of what this job compares, and an MTK TEST: commit that
+    # only patches dts/upstream/Bindings is exactly when the comparison is
+    # worth redoing. Deciding this from the gate's own commit set rather than
+    # a rules:changes: is what makes it work in target-branch mode too, where
+    # the pipeline's ref isn't what's being checked -- so unlike the other
+    # non-building job this one does need the range refs fetched.
+    - |
+      touched=$(for sha in $(python3 "${MTK_CI_DIR}/scripts/build_gate.py" --list-commits); do
+                  git show --pretty=format: --name-only "${sha}"
+                done | grep -E '\.dts[io]?$|^dts/upstream/Bindings/.*\.yaml$' | sort -u)
+      if [ -z "${touched}" ]; then
+        echo "no devicetree or binding changes in the range -- nothing to validate"
+        exit 0
+      fi
+      echo "devicetree/binding files touched in the range:"
+      echo "${touched}" | sed 's/^/  /'
+    # The venv is active for the rest of the job, so it has to satisfy the
+    # build too, not just dt-validate: with only dtschema in it, kbuild's
+    # pylibfdt rebuild dies on "No module named 'setuptools'" (it's the venv's
+    # python3 that runs scripts/dtc/pylibfdt/setup.py, not the system one).
+    # The tree's own requirements files are the list of what that needs.
+    - python3 -m venv /tmp/venv-dtschema
+    - . /tmp/venv-dtschema/bin/activate
+    - pip install -r tools/buildman/requirements.txt
+        -r scripts/dtc/pylibfdt/requirements.txt dtschema yamllint
+    # processed-schema.json is built once, from srctree's bindings, and then
+    # reused for every board below. Which defconfig gets used here doesn't
+    # matter: dt_binding_check touches no board config, it just needs a
+    # configured tree to run through kbuild.
+    - make O="${DTBS_OUT}" mt8365_evk_defconfig >/dev/null
+    - make O="${DTBS_OUT}" dt_binding_check -j"$(nproc)"
+    # -k (--keep-outputs) is what leaves the built devicetree behind for
+    # dt-validate; -M/-W match the build gate (missing MediaTek blobs).
+    - ./tools/buildman/buildman -o "${DTBS_OUT}/boards" -N -k -M -W ${MTK_BUILDMAN_TERMS}
+    # Validated: CONFIG_OF_UPSTREAM=y boards, plus anything named in
+    # MTK_DTBS_CHECK_EXTRA_BOARDS. Everything else builds a devicetree that
+    # has no upstream bindings to be checked against, so dt-validate just
+    # reports the whole DT as unrecognised -- 1400 findings of pure noise,
+    # against 43 for the boards that do have bindings. The boards are still
+    # all built, because whether a board is OF_UPSTREAM is only knowable from
+    # a configured tree; the filter is on .config afterwards. (The glob is one
+    # level deep, so buildman's own .bm-work/ worktrees -- whose copies would
+    # otherwise be validated twice -- can't match.)
+    #
+    # What -k keeps is u-boot.dtb; dts/dt.dtb is a build-tree intermediate and
+    # doesn't survive. -m (--show-unmatched) is what kbuild's own
+    # DT_CHECKER_FLAGS defaults to.
+    #
+    # Everything is in the job log -- no artifact to download -- with the
+    # findings inside a GitLab collapsed section (\033[0K
+    # section_start/section_end markers, see
+    # https://docs.gitlab.com/ci/jobs/job_logs/#custom-collapsible-sections).
+    # The per-board counts stay outside it: that's the part worth seeing
+    # without clicking anything.
+    - |
+      log="${DTBS_OUT}/dtbs-check.log"
+      dtbs=
+      for cfg in "${DTBS_OUT}"/boards/*/.config; do
+        board=$(basename "$(dirname "${cfg}")")
+        case " ${MTK_DTBS_CHECK_EXTRA_BOARDS} " in
+          *" ${board} "*) ;;
+          *) if ! grep -q '^CONFIG_OF_UPSTREAM=y' "${cfg}"; then
+               echo "skipping ${board}: not OF_UPSTREAM"
+               continue
+             fi ;;
+        esac
+        dtbs="${dtbs} $(dirname "${cfg}")/u-boot.dtb"
+      done
+      for board in ${MTK_DTBS_CHECK_EXTRA_BOARDS}; do
+        [ -f "${DTBS_OUT}/boards/${board}/u-boot.dtb" ] ||
+          echo "warning: MTK_DTBS_CHECK_EXTRA_BOARDS names ${board}, which was not built"
+      done
+      dt-validate -m -s "${DTBS_OUT}/dts/upstream/Bindings/processed-schema.json" \
+        ${dtbs} 2>&1 | sed "s|${DTBS_OUT}/boards/||" > "${log}" || true
+      findings=$(grep -cE '^[^[:space:]]+/u-boot\.dtb:' "${log}")
+      echo "${findings} finding(s) per board:"
+      grep -E '^[^[:space:]]+/u-boot\.dtb:' "${log}" | cut -d/ -f1 | sort | uniq -c | sort -rn
+      printf '\033[0Ksection_start:%s:dtbs_findings[collapsed=true]\r\033[0Kdt-validate findings (%s)\n' \
+        "$(date +%s)" "${findings}"
+      cat "${log}"
+      printf '\033[0Ksection_end:%s:dtbs_findings\r\033[0K\n' "$(date +%s)"

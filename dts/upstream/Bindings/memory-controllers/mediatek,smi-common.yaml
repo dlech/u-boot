@@ -45,6 +45,7 @@ properties:
           - mediatek,mt8195-smi-common-vpp
           - mediatek,mt8195-smi-sub-common
           - mediatek,mt8365-smi-common
+          - mediatek,mt8366-smi-common
 
       - description: for mt7623
         items:
@@ -157,6 +158,7 @@ allOf:
             - mediatek,mt6795-smi-common
             - mediatek,mt8167-smi-common
             - mediatek,mt8173-smi-common
+            - mediatek,mt8366-smi-common
 
     then:
       properties:

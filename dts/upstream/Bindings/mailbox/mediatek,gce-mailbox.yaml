@@ -26,6 +26,7 @@ properties:
           - mediatek,mt8192-gce
           - mediatek,mt8195-gce
           - mediatek,mt8196-gce
+          - mediatek,mt8366-gce
       - items:
           - const: mediatek,mt6795-gce
           - const: mediatek,mt8173-gce
