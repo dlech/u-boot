@@ -45,6 +45,10 @@ struct mtk_smi_common_data {
 	bool has_gals;
 };
 
+static const struct mtk_smi_common_data mtk_smi_common_mt8189_data = {
+	.has_gals = false,
+};
+
 static const struct mtk_smi_common_data mtk_smi_common_mt8365_data = {
 	.has_gals = true,
 };
@@ -141,6 +145,8 @@ static int mtk_smi_common_probe(struct udevice *dev)
 }
 
 static const struct udevice_id mtk_smi_common_ids[] = {
+	{ .compatible = "mediatek,mt8189-smi-common",
+	  .data = (ulong)&mtk_smi_common_mt8189_data },
 	{ .compatible = "mediatek,mt8365-smi-common",
 	  .data = (ulong)&mtk_smi_common_mt8365_data },
 	{ .compatible = "mediatek,mt8366-smi-common",
@@ -158,6 +164,10 @@ U_BOOT_DRIVER(mtk_smi_common) = {
 
 struct mtk_smi_larb_data {
 	bool needs_iommu_bypass;
+};
+
+static const struct mtk_smi_larb_data mtk_smi_larb_mt8189_data = {
+	.needs_iommu_bypass = true,
 };
 
 static const struct mtk_smi_larb_data mtk_smi_larb_mt8365_data = {
@@ -264,6 +274,8 @@ static int mtk_smi_larb_probe(struct udevice *dev)
 }
 
 static const struct udevice_id mtk_smi_larb_ids[] = {
+	{ .compatible = "mediatek,mt8189-smi-larb",
+	  .data = (ulong)&mtk_smi_larb_mt8189_data },
 	{ .compatible = "mediatek,mt8365-smi-larb",
 	  .data = (ulong)&mtk_smi_larb_mt8365_data },
 	{ .compatible = "mediatek,mt8366-smi-larb",

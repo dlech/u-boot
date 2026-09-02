@@ -102,6 +102,12 @@ static const struct mtk_disp_mutex_mod mt8366_mutex_mod = {
 	.dsi0	 = BIT(13),
 };
 
+static const struct mtk_disp_mutex_mod mt8189_mutex_mod = {
+	.ovl0	 = BIT(0),
+	.rdma0	 = BIT(4),
+	.dsi0	 = BIT(22),
+};
+
 static const struct mtk_disp_mutex_data mt8365_mutex_data = {
 	.mod = &mt8365_mutex_mod,
 	.sof_is_flag = true,
@@ -109,6 +115,10 @@ static const struct mtk_disp_mutex_data mt8365_mutex_data = {
 
 static const struct mtk_disp_mutex_data mt8366_mutex_data = {
 	.mod = &mt8366_mutex_mod,
+};
+
+static const struct mtk_disp_mutex_data mt8189_mutex_data = {
+	.mod = &mt8189_mutex_mod,
 };
 
 int mtk_disp_mutex_ovl_dsi_enable(struct udevice *dev)
@@ -156,6 +166,8 @@ void mtk_disp_mutex_config_hdmi(struct udevice *dev)
 
 static const struct udevice_id mtk_disp_mutex_ids[] = {
 	{ .compatible = "mediatek,mt8188-disp-mutex" },
+	{ .compatible = "mediatek,mt8189-disp-mutex",
+	  .data = (ulong)&mt8189_mutex_data },
 	{ .compatible = "mediatek,mt8365-disp-mutex",
 	  .data = (ulong)&mt8365_mutex_data },
 	{ .compatible = "mediatek,mt8366-disp-mutex",

@@ -242,6 +242,12 @@ static int mtk_disp_ovl_probe(struct udevice *dev)
 	return 0;
 }
 
+static const struct mtk_disp_ovl_data mt8189_ovl_driver_data = {
+	.smi_id_en = true,
+	.supports_clrfmt_ext = true,
+	.gmc_bits = 10,
+};
+
 static const struct mtk_disp_ovl_data mt8192_ovl_driver_data = {
 	.smi_id_en = true,
 	.gmc_bits = 10,
@@ -254,6 +260,7 @@ static const struct mtk_disp_ovl_data mt8366_ovl_driver_data = {
 };
 
 static const struct udevice_id mtk_disp_ovl_ids[] = {
+	{ .compatible = "mediatek,mt8189-disp-ovl", .data = (ulong)&mt8189_ovl_driver_data },
 	{ .compatible = "mediatek,mt8192-disp-ovl", .data = (ulong)&mt8192_ovl_driver_data },
 	{ .compatible = "mediatek,mt8366-disp-ovl", .data = (ulong)&mt8366_ovl_driver_data },
 	{}

@@ -110,9 +110,9 @@
 #define CLK_HS_POST		       GENMASK(15, 8)
 #define CLK_HS_EXIT		       GENMASK(23, 16)
 
-/* mt8183 register offset; mt8366 shares the mt8188-style layout instead. */
+/* mt8183 register offset; mt8366 and mt8189 share the mt8188 layout instead. */
 #define DSI_SHADOW_DEBUG_MT8183	0x190
-#define DSI_SHADOW_DEBUG_MT8366	0xc00
+#define DSI_SHADOW_DEBUG_MT8188	0xc00
 #define FORCE_COMMIT		       BIT(0)
 #define BYPASS_SHADOW		       BIT(1)
 
@@ -155,10 +155,10 @@ static const struct mtk_dsi_data mt8183_dsi_data = {
 	.host_cmdq_off = 0x200,
 };
 
-static const struct mtk_dsi_data mt8366_dsi_data = {
+static const struct mtk_dsi_data mt8188_dsi_data = {
 	.has_color_pipeline = false,
 	.has_shadow_ctl = false,
-	.shadow_dbg_off = DSI_SHADOW_DEBUG_MT8366,
+	.shadow_dbg_off = DSI_SHADOW_DEBUG_MT8188,
 	.vm_cmdq_off = 0x200,
 	.host_cmdq_off = 0xd00,
 };
@@ -897,7 +897,8 @@ static int mtk_dsi_bind(struct udevice *dev)
 
 static const struct udevice_id mtk_dsi_ids[] = {
 	{ .compatible = "mediatek,mt8183-dsi", .data = (ulong)&mt8183_dsi_data },
-	{ .compatible = "mediatek,mt8366-dsi", .data = (ulong)&mt8366_dsi_data },
+	{ .compatible = "mediatek,mt8188-dsi", .data = (ulong)&mt8188_dsi_data },
+	{ .compatible = "mediatek,mt8366-dsi", .data = (ulong)&mt8188_dsi_data },
 	{}
 };
 
