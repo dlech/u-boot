@@ -19,3 +19,8 @@
 		};
 	};
 };
+
+&hdmi {
+	/* U-Boot specific: the framebuffer lives in this reserved region */
+	memory-region = <&framebuffer>;
+};
