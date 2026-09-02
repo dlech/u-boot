@@ -32,6 +32,13 @@ static inline u64 get_unaligned_le64(const void *p)
 	return le64_to_cpu(__get_unaligned_t(__le64, p));
 }
 
+static inline u32 get_unaligned_le24(const void *p)
+{
+	const u8 *_p = p;
+
+	return _p[0] | _p[1] << 8 | _p[2] << 16;
+}
+
 static inline void put_unaligned_le16(u16 val, void *p)
 {
 	__put_unaligned_t(__le16, cpu_to_le16(val), p);
