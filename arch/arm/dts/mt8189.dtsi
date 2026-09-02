@@ -350,8 +350,8 @@
 			#clock-cells = <1>;
 		};
 
-		clock-controller@14000000 {
-			compatible = "mediatek,mt8189-dispsys", "syscon";
+		dispsys_config: syscon@14000000 {
+			compatible = "mediatek,mt8189-mmsys", "syscon";
 			reg = <0 0x14000000 0 0x1000>;
 			#clock-cells = <1>;
 		};

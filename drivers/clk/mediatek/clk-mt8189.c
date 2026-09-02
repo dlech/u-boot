@@ -2014,7 +2014,7 @@ GATE_CLK_TREE(vlpcfg_ao_clks);
 static const struct udevice_id of_match_mt8189_clk_gate[] = {
 	{ .compatible = "mediatek,mt8189-peri-ao", .data = (ulong)&perao_clks_tree },
 	{ .compatible = "mediatek,mt8189-iic-wrap", .data = (ulong)&imp_clks_tree },
-	{ .compatible = "mediatek,mt8189-dispsys", .data = (ulong)&mm_clks_tree },
+	{ .compatible = "mediatek,mt8189-mmsys", .data = (ulong)&mm_clks_tree },
 	{ .compatible = "mediatek,mt8189-mm-infra", .data = (ulong)&mminfra_config_clks_tree },
 	{ .compatible = "mediatek,mt8189-ufscfg-ao", .data = (ulong)&ufs_config_ao_clks_tree },
 	{ .compatible = "mediatek,mt8189-ufscfg-pdn", .data = (ulong)&ufs_config_pdn_clks_tree },
