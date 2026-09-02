@@ -288,6 +288,12 @@ struct dsi_host_ops mtk_dsi_host_ops = {
  * mtk-dsi video driver (both describe dsi@... ). Since DM binds a single
  * driver per node, the mtk-dsi driver binds us by name onto the same
  * ofnode from its .bind hook (see mtk_dsi_bind()).
+ *
+ * DM_FLAG_DEFAULT_PD_CTRL_OFF for the same reason: the power domain
+ * described by that shared node belongs to mtk-dsi, which keeps it on for
+ * the OS. Without this flag DM would turn it off again when this device is
+ * removed, and mtk_dsi_remove() then runs with the display block already
+ * powered down.
  */
 U_BOOT_DRIVER(mtk_dsi_host) = {
 	.name	   = "mtk-dsi-host",
@@ -295,4 +301,5 @@ U_BOOT_DRIVER(mtk_dsi_host) = {
 	.ops	   = &mtk_dsi_host_ops,
 	.probe	   = mtk_dsi_host_probe,
 	.priv_auto = sizeof(struct mtk_dsi_host_priv),
+	.flags	   = DM_FLAG_DEFAULT_PD_CTRL_OFF,
 };
