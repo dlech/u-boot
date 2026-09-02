@@ -4,10 +4,12 @@
 #
 # Author: Julien Stephan <jstephan@baylibre.com>
 
-obj-$(CONFIG_VIDEO_MEDIATEK_HDMI) += \
+obj-$(CONFIG_VIDEO_MEDIATEK_DISP_COMMON) += \
 	mtk_disp_comp.o \
+	mtk_disp_mutex.o
+
+obj-$(CONFIG_VIDEO_MEDIATEK_HDMI) += \
 	mtk_disp_merge.o \
-	mtk_disp_mutex.o \
 	mtk_disp_padding.o \
 	mtk_dpi.o \
 	mtk_ethdr.o \
@@ -22,7 +24,6 @@ obj-$(CONFIG_VIDEO_MEDIATEK_DSI) += \
 	mtk_disp_color.o \
 	mtk_disp_dither.o \
 	mtk_disp_gamma.o \
-	mtk_disp_mutex_mt8365.o \
 	mtk_disp_ovl.o \
 	mtk_disp_rdma.o \
 	mtk_dsi.o \

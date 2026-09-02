@@ -9,6 +9,7 @@
 
 struct udevice;
 
+int mtk_disp_mutex_ovl_dsi_enable(struct udevice *dev);
 void mtk_disp_mutex_config_hdmi(struct udevice *dev);
 
 #endif

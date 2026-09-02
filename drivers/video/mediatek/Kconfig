@@ -4,12 +4,16 @@
 #
 # Author: Julien Stephan <jstephan@baylibre.com>
 
+config VIDEO_MEDIATEK_DISP_COMMON
+	bool
+
 config VIDEO_MEDIATEK_HDMI
 	bool "Video HDMI Support for Mediatek SoCs"
 	depends on VIDEO && ARCH_MEDIATEK
 	depends on DM_I2C && PHY && POWER_DOMAIN
 	select I2C_EDID
 	select MISC
+	select VIDEO_MEDIATEK_DISP_COMMON
 	select PHY_MTK_HDMI
 	select MTK_POWER_DOMAIN
 	select SYS_I2C_DDC_MTK
@@ -25,6 +29,7 @@ config VIDEO_MEDIATEK_DSI
 	depends on VIDEO && ARCH_MEDIATEK
 	select DISPLAY
 	select MISC
+	select VIDEO_MEDIATEK_DISP_COMMON
 	select VIDEO_MIPI_DSI
 	help
 	  Enable support for the MIPI-DSI display path found on MediaTek

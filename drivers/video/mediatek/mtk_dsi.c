@@ -31,7 +31,7 @@
 #include "mtk_disp_color.h"
 #include "mtk_disp_dither.h"
 #include "mtk_disp_gamma.h"
-#include "mtk_disp_mutex_mt8365.h"
+#include "mtk_disp_mutex.h"
 #include "mtk_disp_ovl.h"
 #include "mtk_disp_rdma.h"
 #include "mtk_mipi_tx.h"
@@ -765,7 +765,11 @@ static int mtk_dsi_probe(struct udevice *dev)
 		return ret;
 	}
 
-	mtk_disp_mutex_ovl_dsi_enable(dsi->mutex);
+	ret = mtk_disp_mutex_ovl_dsi_enable(dsi->mutex);
+	if (ret) {
+		dev_err(dev, "failed to enable mutex\n");
+		return ret;
+	}
 
 	mtk_ddp_ovl_to_dsi(dsi->mmsys_base, dsi->data->has_color_pipeline);
 
