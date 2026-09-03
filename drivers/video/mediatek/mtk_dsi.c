@@ -859,6 +859,10 @@ static int mtk_dsi_remove(struct udevice *dev)
 	 * TODO: a real flicker-free handoff (kernel picking up the still-
 	 * running video mode instead of us tearing it down here) would be
 	 * nicer, but needs the above kernel-side issue fixed first.
+	 *
+	 * Note that DM powers the display domain off right after this, which
+	 * is what actually resets the rest of the pipeline (OVL, RDMA, mutex
+	 * and the SMI larb IOMMU bypass) for the kernel.
 	 */
 	writel(0, dsi->base + DSI_START);
 	writel(CMD_MODE, dsi->base + DSI_MODE_CTRL);
@@ -910,5 +914,5 @@ U_BOOT_DRIVER(mtk_dsi) = {
 	.bind	   = mtk_dsi_bind,
 	.remove	   = mtk_dsi_remove,
 	.priv_auto = sizeof(struct mtk_dsi_priv),
-	.flags	   = DM_FLAG_PRE_RELOC | DM_FLAG_LEAVE_PD_ON | DM_FLAG_OS_PREPARE,
+	.flags	   = DM_FLAG_PRE_RELOC | DM_FLAG_OS_PREPARE,
 };
