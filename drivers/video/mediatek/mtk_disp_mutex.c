@@ -10,6 +10,7 @@
 
 #include <dm.h>
 #include <linux/bitops.h>
+#include <linux/errno.h>
 
 #include "mtk_disp_comp.h"
 #include "mtk_disp_mutex.h"
@@ -29,7 +30,7 @@
 #define DISP_MUTEX_MOD0(id)	(0x30 + 0x20 * (id))
 #define DISP_MUTEX_MOD1(id)	(0x34 + 0x20 * (id))
 
-/* The OVL0 -> DSI0 pipeline always uses mutex instance 0. */
+/* The OVL0 -> DSI0 and OVL0 -> DVO0 pipelines both use mutex instance 0. */
 #define MUTEX_DSI_ID		0
 
 /*
@@ -44,6 +45,7 @@
  * low bits with the matching EOF selector shifted by 7.
  */
 #define MUTEX_SOF_SEL_DSI0	       1
+#define MUTEX_SOF_SEL_DVO0	       5
 #define MUTEX_EOF_SEL(sof)	       ((sof) << 7)
 
 /*
@@ -78,6 +80,7 @@ struct mtk_disp_mutex_mod {
 	u32 gamma0;
 	u32 dither0;
 	u32 dsi0;
+	u32 dvo0;
 };
 
 struct mtk_disp_mutex_data {
@@ -106,6 +109,7 @@ static const struct mtk_disp_mutex_mod mt8189_mutex_mod = {
 	.ovl0	 = BIT(0),
 	.rdma0	 = BIT(4),
 	.dsi0	 = BIT(22),
+	.dvo0	 = BIT(21),
 };
 
 static const struct mtk_disp_mutex_data mt8365_mutex_data = {
@@ -121,12 +125,11 @@ static const struct mtk_disp_mutex_data mt8189_mutex_data = {
 	.mod = &mt8189_mutex_mod,
 };
 
-int mtk_disp_mutex_ovl_dsi_enable(struct udevice *dev)
+static int mtk_disp_mutex_ovl_enable(struct udevice *dev, u32 out_mod, u32 sof)
 {
 	const struct mtk_disp_mutex_data *data =
 		(const struct mtk_disp_mutex_data *)dev_get_driver_data(dev);
 	const struct mtk_disp_mutex_mod *mod = data->mod;
-	u32 sof;
 	int ret;
 
 	ret = mtk_disp_comp_enable(dev);
@@ -137,18 +140,39 @@ int mtk_disp_mutex_ovl_dsi_enable(struct udevice *dev)
 
 	mtk_disp_comp_write(dev, DISP_MUTEX_MOD0(MUTEX_DSI_ID),
 			    mod->ovl0 | mod->rdma0 | mod->color0 | mod->ccorr0 |
-			    mod->aal0 | mod->gamma0 | mod->dither0 | mod->dsi0);
-
-	if (data->sof_is_flag)
-		sof = MUTEX_SOF_FLAG_DSI0 | MUTEX_EOF_FLAG_DSI0;
-	else
-		sof = MUTEX_SOF_SEL_DSI0 | MUTEX_EOF_SEL(MUTEX_SOF_SEL_DSI0);
+			    mod->aal0 | mod->gamma0 | mod->dither0 | out_mod);
 
 	mtk_disp_comp_write(dev, DISP_MUTEX_SOF(MUTEX_DSI_ID), sof);
 
 	mtk_disp_comp_write(dev, DISP_MUTEX_EN(MUTEX_DSI_ID), MUTEX_EN);
 
 	return 0;
+}
+
+int mtk_disp_mutex_ovl_dsi_enable(struct udevice *dev)
+{
+	const struct mtk_disp_mutex_data *data =
+		(const struct mtk_disp_mutex_data *)dev_get_driver_data(dev);
+	u32 sof;
+
+	if (data->sof_is_flag)
+		sof = MUTEX_SOF_FLAG_DSI0 | MUTEX_EOF_FLAG_DSI0;
+	else
+		sof = MUTEX_SOF_SEL_DSI0 | MUTEX_EOF_SEL(MUTEX_SOF_SEL_DSI0);
+
+	return mtk_disp_mutex_ovl_enable(dev, data->mod->dsi0, sof);
+}
+
+int mtk_disp_mutex_ovl_dvo_enable(struct udevice *dev)
+{
+	const struct mtk_disp_mutex_data *data =
+		(const struct mtk_disp_mutex_data *)dev_get_driver_data(dev);
+	u32 sof = MUTEX_SOF_SEL_DVO0 | MUTEX_EOF_SEL(MUTEX_SOF_SEL_DVO0);
+
+	if (!data || !data->mod->dvo0)
+		return -EOPNOTSUPP;
+
+	return mtk_disp_mutex_ovl_enable(dev, data->mod->dvo0, sof);
 }
 
 void mtk_disp_mutex_config_hdmi(struct udevice *dev)
