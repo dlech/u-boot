@@ -72,9 +72,8 @@
 
 /*
  * The MFG1 domain additionally needs an EMICFG GALS sleep protection step,
- * and the ADSP_TOP_DORMANT and EDP_TX_DORMANT domains need SRAM isolation
- * with an inverted SRAM power-down bit. Neither is modelled here: this
- * driver only ever powers up the domains the U-Boot device tree references.
+ * which is not modelled here: this driver only ever powers up the domains the
+ * U-Boot device tree references.
  */
 
 static const struct mtk_scp_domain_data mt8189_scp_domain[] = {
@@ -123,6 +122,7 @@ static const struct mtk_scp_domain_data mt8189_scp_domain[] = {
 		.pwr_sta2nd_offs = MT8189_SPM_PWR_STATUS_2ND,
 		.sram_pdn_bits = BIT(9),
 		.sram_pdn_ack_bits = BIT(13),
+		.caps = MTK_SCPD_SRAM_ISO | MTK_SCPD_SRAM_PDN_INVERTED,
 	},
 	[MT8189_POWER_DOMAIN_ADSP_INFRA] = {
 		.sta_mask = BIT(8),
@@ -382,6 +382,8 @@ static const struct mtk_scp_domain_data mt8189_scp_domain[] = {
 		.pwr_sta_offs = MT8189_SPM_PWR_STATUS_MSB,
 		.pwr_sta2nd_offs = MT8189_SPM_PWR_STATUS_MSB_2ND,
 		.sram_pdn_bits = BIT(9),
+		.sram_pdn_ack_bits = 0,
+		.caps = MTK_SCPD_SRAM_ISO | MTK_SCPD_SRAM_PDN_INVERTED,
 	},
 	[MT8189_POWER_DOMAIN_PCIE] = {
 		.sta_mask = BIT(13),
