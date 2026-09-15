@@ -35,3 +35,6 @@ obj-$(CONFIG_VIDEO_MEDIATEK_DSI) += \
 	mtk_dsi.o \
 	mtk_dsi_host.o \
 	mtk_mipi_tx.o
+
+obj-$(CONFIG_VIDEO_MEDIATEK_EDP) += \
+	mtk_edp.o
