@@ -11,6 +11,11 @@ config VIDEO_MEDIATEK_VDOSYS0
 	bool
 	select MISC
 
+config VIDEO_MEDIATEK_DVO
+	bool
+	select MISC
+	select VIDEO_MEDIATEK_DISP_COMMON
+
 config VIDEO_MEDIATEK_HDMI
 	bool "Video HDMI Support for Mediatek SoCs"
 	depends on VIDEO && ARCH_MEDIATEK

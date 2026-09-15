@@ -17,6 +17,9 @@ obj-$(CONFIG_VIDEO_MEDIATEK_HDMI) += \
 	mtk_mdp_rdma.o \
 	mtk_smi_larb.o
 
+obj-$(CONFIG_VIDEO_MEDIATEK_DVO) += \
+	mtk_dvo.o
+
 obj-$(CONFIG_VIDEO_MEDIATEK_VDOSYS0) += \
 	mtk_ddp.o \
 	mtk_disp_ovl.o \
