@@ -9,11 +9,13 @@
 #include <clk-uclass.h>
 #include <div64.h>
 #include <dm.h>
+#include <limits.h>
 #include <dm/device-internal.h>
 #include <asm/io.h>
 #include <linux/bitops.h>
 #include <linux/delay.h>
 #include <linux/err.h>
+#include <linux/kernel.h>
 
 #include "clk-mtk.h"
 
@@ -240,46 +242,56 @@ static ulong mtk_ext_clock_get_rate(const struct mtk_clk_tree *tree, int id)
 }
 
 /*
- * In case the rate change propagation to parent clocks is undesirable,
- * this function is recursively called to find the parent to calculate
- * the accurate frequency.
+ * Build @out so that it refers to clock @parent on the provider selected by
+ * @flags, which lets the generic clk API be used to walk up the tree even
+ * when the parent lives on a different provider device (a topckgen divider
+ * feeding off an apmixedsys PLL, say).
+ *
+ * CLK_PARENT_EXT parents are not backed by a provider at all; callers have
+ * to handle them with mtk_ext_clock_get_rate() instead.
  */
-static ulong mtk_clk_find_parent_rate(struct clk *clk, int id,
-				      struct udevice *pdev)
+static int mtk_clk_parent_clk(struct clk *clk, int parent, u16 flags,
+			      struct clk *out)
 {
 	struct ofnode_phandle_args args = {
 		.args_count = 1,
-		.args = { id },
+		.args = { parent },
 	};
-	struct clk parent = { };
-	int ret;
-
-	if (pdev)
-		parent.dev = pdev;
-	else
-		parent.dev = clk->dev;
-
-	args.node = dev_ofnode(parent.dev);
-	ret = ((struct clk_ops *)parent.dev->driver->ops)->of_xlate(&parent, &args);
-	if (ret)
-		return ret;
-
-	return clk_get_rate(&parent);
-}
-
-static ulong mtk_find_parent_rate(struct mtk_clk_priv *priv, struct clk *clk,
-				  const int parent, u16 flags)
-{
 	struct udevice *pdev;
 
 	if ((flags & CLK_PARENT_MASK) == CLK_PARENT_EXT)
-		return mtk_ext_clock_get_rate(priv->tree, parent);
+		return -EINVAL;
 
 	pdev = mtk_clk_parent_get_provider(flags);
 	if (IS_ERR(pdev))
 		return PTR_ERR(pdev);
 
-	return mtk_clk_find_parent_rate(clk, parent, pdev);
+	memset(out, 0, sizeof(*out));
+	out->dev = pdev ? pdev : clk->dev;
+	args.node = dev_ofnode(out->dev);
+
+	return ((struct clk_ops *)out->dev->driver->ops)->of_xlate(out, &args);
+}
+
+/*
+ * In case the rate change propagation to parent clocks is undesirable,
+ * this function is recursively called to find the parent to calculate
+ * the accurate frequency.
+ */
+static ulong mtk_find_parent_rate(struct mtk_clk_priv *priv, struct clk *clk,
+				  const int parent, u16 flags)
+{
+	struct clk pclk;
+	int ret;
+
+	if ((flags & CLK_PARENT_MASK) == CLK_PARENT_EXT)
+		return mtk_ext_clock_get_rate(priv->tree, parent);
+
+	ret = mtk_clk_parent_clk(clk, parent, flags, &pclk);
+	if (ret)
+		return ret;
+
+	return clk_get_rate(&pclk);
 }
 
 static ulong mtk_clk_mux_get_rate(struct clk *clk, u32 off)
@@ -297,21 +309,10 @@ static ulong mtk_clk_mux_get_rate(struct clk *clk, u32 off)
 	return mtk_find_parent_rate(priv, clk, parent->id, parent->flags);
 }
 
-static int mtk_clk_mux_set_parent(void __iomem *base, u32 parent,
-				  u32 parent_type,
-				  const struct mtk_composite *mux)
+static void mtk_clk_mux_write_index(void __iomem *base, u32 index,
+				    const struct mtk_composite *mux)
 {
-	u32 val, index = 0;
-
-	/*
-	 * Assume parent_type in clk_tree to be always set. If it's not, assume
-	 * parent clk ID clash is not possible.
-	 */
-	while (mux->parent[index].id != parent ||
-	       (parent_type && (mux->parent[index].flags & CLK_PARENT_MASK) !=
-		parent_type))
-		if (++index == mux->num_parents)
-			return -EINVAL;
+	u32 val;
 
 	if (mux->flags & CLK_MUX_SETCLR_UPD) {
 		val = (mux->mux_mask << mux->mux_shift);
@@ -330,6 +331,25 @@ static int mtk_clk_mux_set_parent(void __iomem *base, u32 parent,
 		val |= index << mux->mux_shift;
 		writel(val, base + mux->mux_reg);
 	}
+}
+
+static int mtk_clk_mux_set_parent(void __iomem *base, u32 parent,
+				  u32 parent_type,
+				  const struct mtk_composite *mux)
+{
+	u32 index = 0;
+
+	/*
+	 * Assume parent_type in clk_tree to be always set. If it's not, assume
+	 * parent clk ID clash is not possible.
+	 */
+	while (mux->parent[index].id != parent ||
+	       (parent_type && (mux->parent[index].flags & CLK_PARENT_MASK) !=
+		parent_type))
+		if (++index == mux->num_parents)
+			return -EINVAL;
+
+	mtk_clk_mux_write_index(base, index, mux);
 
 	return 0;
 }
@@ -556,6 +576,36 @@ static int mtk_pll_calc_values(struct mtk_clk_priv *priv, struct clk *clk,
 	return 0;
 }
 
+/*
+ * Report the rate the PLL would actually end up at if asked for @rate,
+ * without touching the hardware. The requested rate is rarely hit exactly
+ * because it has to be expressed as a pcw/post-divider pair, and it is
+ * clamped to the PLL's [fmin, fmax] range.
+ */
+static ulong mtk_apmixedsys_round_rate(struct clk *clk, ulong rate)
+{
+	struct mtk_clk_priv *priv = dev_get_priv(clk->dev);
+	const struct mtk_parent *parent = &priv->tree->pll_parent;
+	ulong xtal_rate;
+	u32 pcw = 0;
+	u32 postdiv;
+	int ret;
+
+	if (!mtk_clk_id_is_pll(priv->tree, clk->id))
+		return -ENOSYS;
+
+	ret = mtk_pll_calc_values(priv, clk, &pcw, &postdiv, rate);
+	if (ret)
+		return ret;
+
+	xtal_rate = mtk_find_parent_rate(priv, clk, parent->id, parent->flags);
+	if (IS_ERR_VALUE(xtal_rate))
+		return xtal_rate;
+
+	return __mtk_pll_recalc_rate(&priv->tree->plls[clk->id], xtal_rate, pcw,
+				     postdiv);
+}
+
 static ulong mtk_apmixedsys_set_rate(struct clk *clk, ulong rate)
 {
 	struct mtk_clk_priv *priv = dev_get_priv(clk->dev);
@@ -564,7 +614,7 @@ static ulong mtk_apmixedsys_set_rate(struct clk *clk, ulong rate)
 	int ret;
 
 	if (!mtk_clk_id_is_pll(priv->tree, clk->id))
-		return -EINVAL;
+		return -ENOSYS;
 
 	ret = mtk_pll_calc_values(priv, clk, &pcw, &postdiv, rate);
 	if (ret)
@@ -773,6 +823,166 @@ static ulong mtk_topckgen_get_rate(struct clk *clk)
 	}
 
 	return -ENOENT;
+}
+
+/*
+ * Nothing in topckgen can change its own frequency: gates and fixed dividers
+ * only pass a rate through, and a mux only picks between parents. So a rate
+ * request has to be walked up the tree until it reaches a clock that can
+ * actually retune, which on MediaTek is always an apmixedsys PLL.
+ *
+ * @apply selects whether to program the hardware or only report what the
+ * result would have been, so that the round and set paths below cannot
+ * disagree. Both return the resulting rate.
+ */
+static ulong mtk_clk_parent_rate_request(struct clk *clk, int parent, u16 flags,
+					 ulong rate, bool apply)
+{
+	struct mtk_clk_priv *priv = dev_get_priv(clk->dev);
+	struct clk pclk;
+	ulong res;
+	int ret;
+
+	/* an external clock runs at a fixed rate: take it or leave it */
+	if ((flags & CLK_PARENT_MASK) == CLK_PARENT_EXT)
+		return mtk_ext_clock_get_rate(priv->tree, parent);
+
+	ret = mtk_clk_parent_clk(clk, parent, flags, &pclk);
+	if (ret)
+		return ret;
+
+	if (!apply) {
+		res = clk_round_rate(&pclk, rate);
+		/*
+		 * A provider without round_rate (the fixed-topckgen SoCs) can
+		 * only ever offer what it already runs at.
+		 */
+		if (IS_ERR_VALUE(res) && (int)res == -ENOSYS)
+			return clk_get_rate(&pclk);
+
+		return res;
+	}
+
+	res = clk_set_rate(&pclk, rate);
+	if (IS_ERR_VALUE(res) && (int)res != -ENOSYS)
+		return res;
+
+	/*
+	 * mtk_apmixedsys_set_rate() reports success as 0 rather than as the
+	 * new rate, so read the rate back instead of trusting the return.
+	 */
+	return clk_get_rate(&pclk);
+}
+
+/*
+ * Select the mux input that is already closest to @rate.
+ *
+ * A mux only ever picks between its inputs: it must not retune whatever PLL
+ * happens to sit behind one of them, because those are shared - the audio
+ * PLLs in particular feed unrelated blocks, and a display driver has no
+ * business moving them. A driver that needs a rate no input currently
+ * provides has to set its own PLL first, the one its "pll" clock names, and
+ * then ask the mux for the resulting rate.
+ */
+static ulong mtk_clk_mux_rate_request(struct clk *clk, ulong rate, bool apply)
+{
+	struct mtk_clk_priv *priv = dev_get_priv(clk->dev);
+	const struct mtk_composite *mux =
+		&priv->tree->muxes[clk->id - priv->tree->muxes_offs];
+	ulong best_rate = 0;
+	ulong best_err = 0;
+	bool found = false;
+	u32 best_index = 0;
+	u32 i;
+
+	for (i = 0; i < mux->num_parents; i++) {
+		const struct mtk_parent *parent = &mux->parent[i];
+		ulong prate, err;
+
+		prate = mtk_find_parent_rate(priv, clk, parent->id,
+					     parent->flags);
+		if (IS_ERR_VALUE(prate))
+			continue;
+
+		err = prate > rate ? prate - rate : rate - prate;
+		if (!found || err < best_err) {
+			found = true;
+			best_index = i;
+			best_rate = prate;
+			best_err = err;
+		}
+
+		if (!err)
+			break;
+	}
+
+	if (!found)
+		return -EINVAL;
+
+	if (apply)
+		mtk_clk_mux_write_index(priv->base, best_index, mux);
+
+	return best_rate;
+}
+
+static ulong mtk_topckgen_rate_request(struct clk *clk, ulong rate, bool apply)
+{
+	struct mtk_clk_priv *priv = dev_get_priv(clk->dev);
+	const struct mtk_clk_tree *tree = priv->tree;
+
+	if (mtk_clk_id_is_fclk(tree, clk->id))
+		return tree->fclks[clk->id].rate;
+
+	if (mtk_clk_id_is_fdiv(tree, clk->id)) {
+		const struct mtk_fixed_factor *fdiv =
+			&tree->fdivs[clk->id - tree->fdivs_offs];
+		ulong parent_rate;
+		u64 target;
+
+		/* undo the factor to get the rate the parent has to run at */
+		target = (u64)rate * fdiv->div;
+		do_div(target, fdiv->mult);
+
+		/*
+		 * mtk_pll_calc_values() takes the rate as a u32 and the PLL
+		 * clamps to its own fmax anyway, so saturate rather than wrap
+		 * on a request no parent could ever satisfy.
+		 */
+		parent_rate = mtk_clk_parent_rate_request(clk, fdiv->parent,
+							  fdiv->flags,
+							  min_t(u64, target,
+								U32_MAX),
+							  apply);
+		if (IS_ERR_VALUE(parent_rate))
+			return parent_rate;
+
+		return mtk_factor_recalc_rate(fdiv, parent_rate);
+	}
+
+	if (mtk_clk_id_is_mux(tree, clk->id))
+		return mtk_clk_mux_rate_request(clk, rate, apply);
+
+	if (mtk_clk_id_is_gate(tree, clk->id)) {
+		const struct mtk_gate *gate =
+			&tree->gates[clk->id - tree->gates_offs];
+
+		return mtk_clk_parent_rate_request(clk, gate->parent,
+						   gate->flags,
+						   min_t(u64, rate, U32_MAX),
+						   apply);
+	}
+
+	return -ENOENT;
+}
+
+static ulong mtk_topckgen_round_rate(struct clk *clk, ulong rate)
+{
+	return mtk_topckgen_rate_request(clk, rate, false);
+}
+
+static ulong mtk_topckgen_set_rate(struct clk *clk, ulong rate)
+{
+	return mtk_topckgen_rate_request(clk, rate, true);
 }
 
 static int mtk_clk_mux_enable(struct clk *clk)
@@ -1059,6 +1269,7 @@ const struct clk_ops mtk_clk_apmixedsys_ops = {
 	.enable = mtk_apmixedsys_enable,
 	.disable = mtk_apmixedsys_disable,
 	.set_rate = mtk_apmixedsys_set_rate,
+	.round_rate = mtk_apmixedsys_round_rate,
 	.get_rate = mtk_apmixedsys_get_rate,
 #if CONFIG_IS_ENABLED(CMD_CLK)
 	.dump = mtk_apmixedsys_dump,
@@ -1080,6 +1291,8 @@ const struct clk_ops mtk_clk_topckgen_ops = {
 	.enable = mtk_topckgen_enable,
 	.disable = mtk_topckgen_disable,
 	.get_rate = mtk_topckgen_get_rate,
+	.set_rate = mtk_topckgen_set_rate,
+	.round_rate = mtk_topckgen_round_rate,
 	.set_parent = mtk_common_clk_set_parent,
 #if CONFIG_IS_ENABLED(CMD_CLK)
 	.dump = mtk_topckgen_dump,
