@@ -7,6 +7,10 @@
 config VIDEO_MEDIATEK_DISP_COMMON
 	bool
 
+config VIDEO_MEDIATEK_VDOSYS0
+	bool
+	select MISC
+
 config VIDEO_MEDIATEK_HDMI
 	bool "Video HDMI Support for Mediatek SoCs"
 	depends on VIDEO && ARCH_MEDIATEK
@@ -30,6 +34,7 @@ config VIDEO_MEDIATEK_DSI
 	select DISPLAY
 	select MISC
 	select VIDEO_MEDIATEK_DISP_COMMON
+	select VIDEO_MEDIATEK_VDOSYS0
 	select VIDEO_MIPI_DSI
 	help
 	  Enable support for the MIPI-DSI display path found on MediaTek
