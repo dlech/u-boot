@@ -8,6 +8,7 @@
 #define _MTK_DDP_H
 
 void mtk_ddp_ovl_to_dsi(void __iomem *mmsys_base, bool has_color_pipeline);
+void mtk_ddp_ovl_to_dvo(void __iomem *mmsys_base);
 void mtk_ddp_rdma_to_dpi(void __iomem *mmsys_base);
 
 #endif
