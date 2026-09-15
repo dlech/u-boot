@@ -1,0 +1,96 @@
+// SPDX-License-Identifier: (GPL-2.0-only OR MIT)
+/*
+ * Copyright (C) 2026 BayLibre, SAS.
+ *
+ * Drives the panel on the EVK's eDP connector instead of the DSI panel.
+ * The two share the display pipeline, so only one can be enabled at a time.
+ */
+
+/dts-v1/;
+/plugin/;
+
+&backlight_lcd0 {
+	status = "disabled";
+};
+
+&backlight_lcd1 {
+	status = "okay";
+};
+
+&disp_dvo0 {
+	status = "okay";
+
+	port {
+		dvo0_out: endpoint {
+			remote-endpoint = <&edp_in>;
+		};
+	};
+};
+
+&disp_pwm0 {
+	status = "disabled";
+};
+
+&disp_pwm1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&disp_pwm1_pins>;
+	status = "okay";
+};
+
+&dsi0 {
+	status = "disabled";
+};
+
+&edp_tx {
+	pinctrl-names = "default";
+	pinctrl-0 = <&edp_hpd_pins>;
+	status = "okay";
+
+	aux-bus {
+		panel {
+			compatible = "edp-panel";
+			power-supply = <&reg_edp_panel_3v3>;
+			backlight = <&backlight_lcd1>;
+
+			port {
+				edp_panel_in: endpoint {
+					remote-endpoint = <&edp_out>;
+				};
+			};
+		};
+	};
+
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@0 {
+			reg = <0>;
+
+			edp_in: endpoint {
+				remote-endpoint = <&dvo0_out>;
+			};
+		};
+
+		port@1 {
+			reg = <1>;
+
+			edp_out: endpoint {
+				remote-endpoint = <&edp_panel_in>;
+				data-lanes = <0 1 2 3>;
+			};
+		};
+	};
+};
+
+&mipi_tx_config0 {
+	status = "disabled";
+};
+
+&reg_edp_backlight_12v {
+	status = "okay";
+};
+
+&reg_edp_panel_3v3 {
+	status = "okay";
+};
